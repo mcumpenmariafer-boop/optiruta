@@ -1,0 +1,10 @@
+{% load static %}<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>OptiRuta</title></head>
+<body>
+<script>
+  // Redirige según la sesión y el rol
+  let s = null; try { s = JSON.parse(localStorage.getItem("optiruta.sesion")); } catch {}
+  const rol = s && s.usuario && s.usuario.rol;
+  location.replace(!rol ? "/login/" : rol === "CONDUCTOR" ? "/app/conductor/" : "/app/dashboard/");
+</script>
+</body></html>

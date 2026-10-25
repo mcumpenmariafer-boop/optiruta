@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+{% block cabecera %}
+<style>
+  .cond-cab { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 10px; }
+  .cond-cab .codigo { font-family: var(--fuente-c); font-weight: 700; font-size: 22px; color: var(--asfalto); }
+  .cond-datos { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 14px; color: var(--tinta-suave); margin-top: 8px; }
+  .cond-datos b { color: var(--asfalto); font-family: var(--fuente-c); font-size: 18px; margin-right: 3px; }
+  .progreso-ruta span { height: 10px; }
+  .mapa-cond { height: 460px; }
+  .siguiente { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--blanco);
+    border: 1px dashed var(--linea); border-radius: var(--radio); font-size: 14px; }
+  .siguiente .num { width: 30px; height: 30px; border-radius: 50%; background: var(--papel-2); display: grid; place-items: center;
+    font-family: var(--fuente-c); font-weight: 700; color: var(--tinta-suave); flex-shrink: 0; }
+  .acciones { display: grid; gap: 8px; }
+  .acciones .fila { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .acciones .btn-sec { padding: 14px; font-weight: 700; border-radius: var(--radio); }
+  .estado-gps { font-size: 12.5px; }
+  .tarjeta-lista { max-height: 420px; overflow-y: auto; }
+  .ruta-lista { text-align: center; padding: 28px 24px; }
+  .ruta-lista .comparar { display: flex; justify-content: center; gap: 28px; margin: 18px 0 22px; }
+  .ruta-lista .comparar div { font-size: 13px; color: var(--tinta-suave); }
+  .ruta-lista .comparar b { display: block; font-family: var(--fuente-c); font-size: 34px; line-height: 1; color: var(--asfalto); }
+  .ruta-lista .comparar .antes b { color: var(--tinta-suave); text-decoration: line-through; }
+
+  /* En celular: acciones fijas abajo, al alcance del pulgar */
+  @media (max-width: 991px) {
+    .mapa-cond { height: 260px; }
+    .acciones.fijas {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 1025; background: var(--blanco);
+      padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 20px rgba(20,50,79,.15);
+    }
+    .acciones.fijas .btn-grande { padding: 14px; font-size: 19px; }
+    .acciones.fijas .btn-sec { padding: 11px; }
+    .con-acciones-fijas { padding-bottom: 170px; }
+    .parada-actual h2 { font-size: 26px; }
+    .cond-cab .codigo { font-size: 18px; }
+    .cond-datos { gap: 4px 14px; font-size: 13px; }
+    .tarjeta-lista { max-height: none; }
+  }
+</style>
+{% endblock %}
+
+{% block contenido %}
+<div id="vista">{{ "" }}</div>
+
+<div class="modal fade" id="modal-incidencia" tabindex="-1" aria-labelledby="t-inc" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><form class="modal-content" id="form-incidencia" novalidate>
+    <div class="modal-header"><h3 class="modal-title" id="t-inc">No se pudo entregar</h3><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <div class="modal-body">
+      <input type="hidden" id="inc-estado">
+      <label class="form-label">¿Qué pasó?</label>
+      <div class="d-grid gap-2 mb-3" id="motivos">
+        <button type="button" class="btn btn-outline-secondary text-start">Cliente ausente</button>
+        <button type="button" class="btn btn-outline-secondary text-start">Dirección incorrecta</button>
+        <button type="button" class="btn btn-outline-secondary text-start">Local cerrado</button>
+        <button type="button" class="btn btn-outline-secondary text-start">Cliente rechazó el pedido</button>
+        <button type="button" class="btn btn-outline-secondary text-start">Cliente pidió otro día</button>
+      </div>
+      <label class="form-label" for="obs">Observación</label>
+      <textarea class="form-control" id="obs" rows="2" minlength="5" maxlength="250" required></textarea>
+      <div class="invalid-feedback">Describe lo ocurrido (mínimo 5 caracteres).</div>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Volver</button>
+      <button class="btn btn-fallar" type="submit" id="btn-inc">Registrar</button></div>
+  </form></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const vista = document.getElementById("vista");
+  const modalInc = new bootstrap.Modal("#modal-incidencia");
+  let ruta = null, mapa = null, miMarcador = null;
+  let gpsReal = null, simulacion = null, ultimoEnvio = 0, posicion = null;
+  const ABIERTAS = ["PENDIENTE", "EN_CAMINO"];
+
+  async function cargar() {
+    try {
+      const d = await OR.api("rutas/mi-ruta/");
+      ruta = d.ruta;
+      pintar();
+    } catch (e) { vista.innerHTML = `<div class="panel">${OR.vacio(e.message, "exclamation-circle")}</div>`; }
+  }
+
+  function cabecera() {
+    const hechas = ruta.paradas.filter((p) => !ABIERTAS.includes(p.estado)).length;
+    const entregadas = ruta.paradas.filter((p) => p.estado === "ENTREGADO").length;
+    const incid = ruta.paradas.filter((p) => ["FALLIDO", "REPROGRAMADO"].includes(p.estado)).length;
+    return `
+      <div class="panel panel-cuerpo mb-3">
+        <div class="cond-cab">
+          <span class="carril-cab m-0"><span class="placa">${OR.esc(ruta.vehiculo_placa)}</span></span>
+          <span class="codigo">${OR.esc(ruta.codigo)}</span>${OR.estado(ruta.estado, ruta.estado_display)}
+          <button class="btn btn-sm btn-outline-secondary ms-auto" id="btn-pdf"><i class="bi bi-file-earmark-pdf me-1"></i><span class="d-none d-sm-inline">Hoja de ruta</span></button>
+        </div>
+        <div class="progreso-ruta" aria-label="Avance: ${hechas} de ${ruta.paradas.length}">${ruta.paradas.map((p) => `<span class="${p.estado}" title="Parada ${p.orden}: ${p.estado_display}"></span>`).join("")}</div>
+        <div class="cond-datos">
+          <span><b>${hechas}/${ruta.paradas.length}</b>paradas</span>
+          <span><b>${entregadas}</b>entregadas</span>
+          ${incid ? `<span><b class="text-danger">${incid}</b>incidencias</span>` : ""}
+          <span><b>${OR.num(ruta.km_estimados)}</b>km optimizados</span>
+          <span><b>~${ruta.minutos_estimados}</b>min</span>
+        </div>
+      </div>`;
+  }
+
+  function tarjetaActual(actual) {
+    const p = actual.pedido;
+    const sig = ruta.paradas.find((x) => x.estado === "PENDIENTE");
+    return `
+      <div class="parada-actual mb-3">
+        <div class="orden">Parada ${actual.orden} de ${ruta.paradas.length} · llegada estimada ${(actual.hora_estimada || "").slice(0, 5)}</div>
+        <h2>${OR.esc(p.cliente)}</h2>
+        <div class="dir">${OR.esc(p.direccion)}</div>
+        ${p.referencia ? `<div class="ref"><i class="bi bi-signpost me-1"></i>${OR.esc(p.referencia)}</div>` : ""}
+        <div class="d-flex flex-wrap gap-2 mt-3 small">
+          ${p.prioridad !== "NORMAL" ? OR.prioridad(p.prioridad) : ""}
+          <span class="badge text-bg-light">${OR.num(p.peso_kg)} kg · ${p.bultos} bulto(s)</span>
+          <span class="badge text-bg-light"><i class="bi bi-clock me-1"></i>${OR.esc(p.ventana_horaria)}</span>
+          <span class="badge text-bg-light">${OR.esc(p.codigo)}</span>
+        </div>
+        ${p.descripcion ? `<div class="small mt-2" style="color:#C9D6E2"><i class="bi bi-box-seam me-1"></i>${OR.esc(p.descripcion)}</div>` : ""}
+        <div class="d-flex gap-2 mt-3 mb-2">
+          ${p.telefono ? `<a class="btn btn-light flex-fill" href="tel:+51${OR.esc(p.telefono)}"><i class="bi bi-telephone me-1"></i>Llamar</a>` : ""}
+          <a class="btn btn-light flex-fill" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}"><i class="bi bi-sign-turn-right me-1"></i>Cómo llegar</a>
+        </div>
+      </div>
+      ${sig ? `<div class="siguiente mb-3"><span class="num">${sig.orden}</span><div class="lh-sm"><div class="small text-suave">Después vas a</div><b>${OR.esc(sig.pedido.cliente)}</b> · <span class="text-suave">${OR.esc(sig.pedido.direccion)}</span></div><span class="ms-auto cifra">${(sig.hora_estimada || "").slice(0, 5)}</span></div>` : ""}
+      <div class="acciones fijas">
+        <button class="btn btn-entregar btn-grande" id="btn-entregado" data-cargando="Registrando…"><i class="bi bi-check2-circle me-2"></i>Entregado</button>
+        <div class="fila">
+          <button class="btn btn-fallar btn-sec" data-inc="FALLIDO"><i class="bi bi-x-circle me-1"></i>No entregado</button>
+          <button class="btn btn-light border btn-sec" data-inc="REPROGRAMADO"><i class="bi bi-calendar-event me-1"></i>Reprogramar</button>
+        </div>
+      </div>`;
+  }
+
+  function pintar() {
+    if (!ruta) {
+      detenerSimulacion(); detenerGps();
+      vista.innerHTML = `<div class="panel" style="max-width:560px;margin:40px auto">${OR.vacio("No tienes rutas asignadas por ahora. Cuando el supervisor planifique tu ruta aparecerá aquí.", "cup-hot")}
+        <div class="text-center pb-4"><button class="btn btn-outline-secondary" id="btn-recargar"><i class="bi bi-arrow-clockwise me-1"></i>Buscar de nuevo</button></div></div>`;
+      document.getElementById("btn-recargar").onclick = cargar;
+      return;
+    }
+    const actual = ruta.paradas.find((p) => p.estado === "EN_CAMINO");
+    let izquierda = "";
+    if (ruta.estado === "PLANIFICADA") {
+      izquierda = `<div class="panel ruta-lista mb-3">
+        <i class="bi bi-signpost-split fs-1" style="color:var(--senal)"></i>
+        <h2 class="mt-2 mb-1">Tu ruta está lista</h2>
+        <p class="text-suave mb-0">El sistema ordenó ${ruta.paradas.length} entregas para que recorras menos. Revisa la carga (${OR.num(ruta.peso_total_kg, 0)} kg · ${ruta.bultos_total} bultos) y sal cuando estés listo.</p>
+        <div class="comparar"><div class="antes"><b>${OR.num(ruta.km_sin_optimizar)}</b>km sin optimizar</div><div><b>${OR.num(ruta.km_estimados)}</b>km tu ruta</div></div>
+        <button class="btn btn-ruta btn-grande" id="btn-iniciar" data-cargando="Iniciando…"><i class="bi bi-play-fill me-2"></i>Iniciar ruta</button></div>`;
+    } else if (actual) {
+      izquierda = tarjetaActual(actual);
+    } else {
+      izquierda = `<div class="panel ruta-lista mb-3">
+        <i class="bi bi-flag-fill fs-1" style="color:var(--entrega)"></i>
+        <h2 class="mt-2 mb-1">Todas las paradas atendidas</h2>
+        <p class="text-suave">Regresa al almacén y cierra la ruta para registrar tus indicadores.</p>
+        <button class="btn btn-asfalto btn-grande" id="btn-cerrar" data-cargando="Cerrando…"><i class="bi bi-flag me-2"></i>Cerrar ruta</button></div>`;
+    }
+    const lista = ruta.paradas.map((p) => `
+      <li class="${p.estado}"><span class="hito">${p.orden}</span><div class="tarjeta-parada">
+        <div class="d-flex justify-content-between gap-2"><b>${OR.esc(p.pedido.cliente)}</b><span class="cifra">${(p.hora_estimada || "").slice(0, 5)}</span></div>
+        <div class="small text-suave">${OR.esc(p.pedido.direccion)}${p.pedido.prioridad === "URGENTE" ? " · " + OR.prioridad("URGENTE") : ""}</div>
+        ${!ABIERTAS.includes(p.estado) ? `<div class="mt-1">${OR.estado(p.estado, p.estado_display)}${p.observacion ? ` <span class="small text-suave">· ${OR.esc(p.observacion)}</span>` : ""}</div>` : ""}
+      </div></li>`).join("");
+
+    vista.innerHTML = `
+      ${cabecera()}
+      <div class="row g-3 ${actual ? "con-acciones-fijas" : ""}">
+        <div class="col-lg-5">${izquierda}</div>
+        <div class="col-lg-7">
+          <div class="panel mb-3">
+            <div class="p-2"><div id="mapa" class="mapa mapa-cond"></div></div>
+            ${ruta.estado === "EN_CURSO" ? `
+            <div class="d-flex flex-wrap align-items-center gap-3 px-3 pb-3 small">
+              <div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="sw-gps"><label class="form-check-label" for="sw-gps">Compartir mi ubicación</label></div>
+              <div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="sw-sim"><label class="form-check-label" for="sw-sim">Simular recorrido (demo)</label></div>
+              <span class="text-suave ms-auto estado-gps" id="gps-estado"></span>
+            </div>` : ""}
+          </div>
+          <div class="panel">
+            <div class="panel-cab"><h2>Orden de entregas</h2><span class="ms-auto small text-suave">Calculado para recorrer menos</span></div>
+            <div class="panel-cuerpo tarjeta-lista"><ol class="linea-tiempo">${lista}</ol></div>
+          </div>
+        </div>
+      </div>`;
+    enlazar(actual);
+    dibujarMapa(actual);
+  }
+
+  function dibujarMapa(actual) {
+    mapa?.remove();
+    mapa = OR.mapa("mapa", [DEPOSITO.lat, DEPOSITO.lng], 14);
+    L.marker([DEPOSITO.lat, DEPOSITO.lng], { icon: OR.iconos.deposito() }).addTo(mapa).bindTooltip("Almacén");
+    const linea = [[DEPOSITO.lat, DEPOSITO.lng], ...ruta.paradas.map((p) => [p.pedido.lat, p.pedido.lng]), [DEPOSITO.lat, DEPOSITO.lng]];
+    L.polyline(linea, { color: "#14324F", weight: 8, opacity: .18 }).addTo(mapa);
+    L.polyline(linea, { color: "#F5B400", weight: 4 }).addTo(mapa);
+    ruta.paradas.forEach((p) => L.marker([p.pedido.lat, p.pedido.lng], { icon: OR.iconos.parada(p.orden, OR.COLOR_ESTADO[p.estado]) })
+      .addTo(mapa).bindPopup(`<b>${p.orden}. ${OR.esc(p.pedido.cliente)}</b><br>${OR.esc(p.pedido.direccion)}`));
+    if (ruta.estado === "EN_CURSO") {
+      posicion = posicion || (ruta.posicion_actual ? { lat: ruta.posicion_actual.lat, lng: ruta.posicion_actual.lng } : { lat: DEPOSITO.lat, lng: DEPOSITO.lng });
+      miMarcador = L.marker([posicion.lat, posicion.lng], { icon: OR.iconos.camion(true, ruta.vehiculo_tipo), zIndexOffset: 1000 }).addTo(mapa).bindTooltip("Tú");
+      document.getElementById("sw-gps").checked = !!gpsReal;
+      document.getElementById("sw-sim").checked = !!simulacion;
+      document.getElementById("sw-gps").onchange = (e) => e.target.checked ? iniciarGps() : detenerGps();
+      document.getElementById("sw-sim").onchange = (e) => e.target.checked ? iniciarSimulacion() : detenerSimulacion();
+    }
+    if (actual && posicion) mapa.fitBounds([[posicion.lat, posicion.lng], [actual.pedido.lat, actual.pedido.lng]], { padding: [50, 50], maxZoom: 16 });
+    else mapa.fitBounds(linea, { padding: [24, 24] });
+  }
+
+  async function enviarPosicion(lat, lng, vel, forzar = false) {
+    posicion = { lat, lng };
+    miMarcador?.setLatLng([lat, lng]);
+    const ahora = Date.now();
+    if (!forzar && ahora - ultimoEnvio < 3000) return;
+    ultimoEnvio = ahora;
+    try {
+      await OR.api(`vehiculos/${ruta.vehiculo}/posicion/`, { metodo: "POST", datos: { latitud: +lat.toFixed(6), longitud: +lng.toFixed(6), velocidad_kmh: vel } });
+      const g = document.getElementById("gps-estado");
+      if (g) g.innerHTML = `<i class="bi bi-broadcast me-1 text-success"></i>Enviada ${new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+    } catch (e) { OR.aviso(e.message, "error"); }
+  }
+
+  function iniciarGps() {
+    if (!navigator.geolocation) { OR.aviso("Este dispositivo no tiene GPS disponible.", "error"); return; }
+    detenerSimulacion();
+    gpsReal = navigator.geolocation.watchPosition(
+      (p) => enviarPosicion(p.coords.latitude, p.coords.longitude, p.coords.speed ? p.coords.speed * 3.6 : null),
+      () => { OR.aviso("No se pudo obtener tu ubicación. Revisa los permisos del navegador.", "error"); detenerGps(); },
+      { enableHighAccuracy: true, maximumAge: 5000 });
+  }
+  function detenerGps() { if (gpsReal !== null) navigator.geolocation.clearWatch(gpsReal); gpsReal = null; const s = document.getElementById("sw-gps"); if (s) s.checked = false; }
+
+  // Simulación: el vehículo avanza hacia la parada actual (para la demo en clase)
+  function iniciarSimulacion() {
+    detenerGps();
+    simulacion = setInterval(() => {
+      const actual = ruta.paradas.find((p) => p.estado === "EN_CAMINO");
+      const destino = actual ? actual.pedido : { lat: DEPOSITO.lat, lng: DEPOSITO.lng };
+      const dLat = destino.lat - posicion.lat, dLng = destino.lng - posicion.lng;
+      const dist = Math.hypot(dLat, dLng);
+      if (dist < 0.0003) { const g = document.getElementById("gps-estado"); if (g) g.textContent = "Llegaste a la parada"; return; }
+      const paso = Math.min(1, 0.0012 / dist);
+      enviarPosicion(posicion.lat + dLat * paso, posicion.lng + dLng * paso, 25, true);
+    }, 3000);
+  }
+  function detenerSimulacion() { clearInterval(simulacion); simulacion = null; const s = document.getElementById("sw-sim"); if (s) s.checked = false; }
+
+  async function cambiarEstado(parada, estado, observacion = "") {
+    await OR.api(`paradas/${parada.id}/estado/`, { metodo: "PATCH", datos: { estado, observacion } });
+    if (navigator.vibrate) navigator.vibrate(60);
+  }
+
+  function enlazar(actual) {
+    const b = (id) => document.getElementById(id);
+    b("btn-pdf").onclick = async () => {
+      try { const r = await OR.api(`rutas/${ruta.id}/hoja-ruta/`, { crudo: true }); window.open(URL.createObjectURL(await r.blob()), "_blank"); }
+      catch (err) { OR.aviso(err.message, "error"); }
+    };
+    if (b("btn-iniciar")) b("btn-iniciar").onclick = async (e) => {
+      try { await OR.conCarga(e.currentTarget, () => OR.api(`rutas/${ruta.id}/iniciar/`, { metodo: "POST" }));
+        OR.aviso("¡Buen viaje! Tu primera parada está lista.", "ok"); cargar(); }
+      catch (err) { OR.aviso(err.message, "error"); }
+    };
+    if (b("btn-entregado")) b("btn-entregado").onclick = async (e) => {
+      try { await OR.conCarga(e.currentTarget, () => cambiarEstado(actual, "ENTREGADO")); OR.aviso(`Entregado a ${actual.pedido.cliente}.`, "ok"); cargar(); }
+      catch (err) { OR.aviso(err.message, "error"); }
+    };
+    document.querySelectorAll("[data-inc]").forEach((btn) => btn.onclick = () => {
+      const estado = btn.dataset.inc;
+      document.getElementById("inc-estado").value = estado;
+      document.getElementById("t-inc").textContent = estado === "FALLIDO" ? "No se pudo entregar" : "Reprogramar entrega";
+      document.getElementById("btn-inc").textContent = estado === "FALLIDO" ? "Registrar incidencia" : "Reprogramar para mañana";
+      document.getElementById("obs").value = "";
+      document.getElementById("form-incidencia").classList.remove("was-validated");
+      modalInc.show();
+    });
+    if (b("btn-cerrar")) b("btn-cerrar").onclick = async (e) => {
+      try { await OR.conCarga(e.currentTarget, () => OR.api(`rutas/${ruta.id}/cerrar/`, { metodo: "POST" }));
+        detenerSimulacion(); detenerGps();
+        OR.aviso("Ruta cerrada. ¡Buen trabajo!", "ok", 6000); cargar(); }
+      catch (err) { OR.aviso(err.message, "error"); }
+    };
+  }
+
+  document.querySelectorAll("#motivos button").forEach((m) => m.onclick = () => { document.getElementById("obs").value = m.textContent; });
+  document.getElementById("form-incidencia").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget; f.classList.add("was-validated");
+    if (!f.checkValidity()) return;
+    const actual = ruta.paradas.find((p) => p.estado === "EN_CAMINO");
+    try {
+      await cambiarEstado(actual, document.getElementById("inc-estado").value, document.getElementById("obs").value);
+      modalInc.hide(); OR.aviso("Incidencia registrada. Pasamos a la siguiente parada.", "info"); cargar();
+    } catch (err) { OR.aviso(err.message, "error"); }
+  });
+  window.addEventListener("resize", () => mapa && mapa.invalidateSize());
+
+  vista.innerHTML = OR.cargando("Cargando tu ruta…");
+  cargar();
+})();
+</script>
+{% endblock %}

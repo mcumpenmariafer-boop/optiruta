@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="panel">
+  <div class="panel-cuerpo">
+    <form class="row g-2 align-items-end" id="filtros">
+      <div class="col-6 col-md-2"><label class="form-label" for="desde">Desde</label><input type="date" class="form-control" id="desde" name="desde"></div>
+      <div class="col-6 col-md-2"><label class="form-label" for="hasta">Hasta</label><input type="date" class="form-control" id="hasta" name="hasta"></div>
+      <div class="col-6 col-md-3"><label class="form-label" for="vehiculo">Vehículo</label><select class="form-select" id="vehiculo" name="vehiculo"><option value="">Todos</option></select></div>
+      <div class="col-6 col-md-3"><label class="form-label" for="estado">Estado</label>
+        <select class="form-select" id="estado" name="estado"><option value="">Todos</option>
+          <option value="COMPLETADA">Completada</option><option value="EN_CURSO">En curso</option><option value="PLANIFICADA">Planificada</option><option value="CANCELADA">Cancelada</option></select></div>
+      <div class="col-md-2"><button class="btn btn-outline-secondary w-100" type="reset">Limpiar</button></div>
+    </form>
+  </div>
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead><tr><th>Ruta</th><th>Fecha</th><th>Vehículo</th><th>Conductor</th><th>Estado</th>
+        <th class="num">Paradas</th><th class="num">Km optimizados</th><th class="num">Km manual</th><th class="num">Ahorro</th></tr></thead>
+      <tbody id="filas"></tbody>
+    </table>
+  </div>
+  <div class="d-flex align-items-center px-3 py-2" id="paginacion"></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  let pagina = 1;
+  const form = document.getElementById("filtros");
+  async function cargar() {
+    const p = new URLSearchParams();
+    for (const [k, v] of new FormData(form)) if (v) p.set(k, v);
+    p.set("page", pagina); p.set("ordering", "-fecha");
+    const filas = document.getElementById("filas");
+    filas.innerHTML = `<tr><td colspan="9">${OR.cargando()}</td></tr>`;
+    try {
+      const d = await OR.api(`rutas/?${p}`);
+      filas.innerHTML = d.results.length ? d.results.map((r) => `
+        <tr class="clic" data-id="${r.id}" tabindex="0">
+          <td class="cifra fw-bold">${OR.esc(r.codigo)}</td><td>${OR.fecha(r.fecha)}</td>
+          <td>${OR.esc(r.vehiculo_placa)}</td><td>${OR.esc(r.conductor || "—")}</td><td>${OR.estado(r.estado, r.estado_display)}</td>
+          <td class="num">${r.paradas_cerradas}/${r.total_paradas}</td><td class="num">${OR.num(r.km_estimados)}</td>
+          <td class="num text-suave">${OR.num(r.km_sin_optimizar)}</td><td class="num text-success fw-semibold">−${OR.num(r.ahorro_pct)}%</td>
+        </tr>`).join("") : `<tr><td colspan="9">${OR.vacio("No hay rutas con estos filtros.")}</td></tr>`;
+      document.getElementById("paginacion").innerHTML = `<span class="small text-suave">${d.count} ruta(s)</span>
+        <div class="ms-auto btn-group btn-group-sm">
+          <button class="btn btn-outline-secondary" id="ant" ${d.previous ? "" : "disabled"} aria-label="Anterior"><i class="bi bi-chevron-left"></i></button>
+          <span class="btn btn-outline-secondary disabled">${pagina}</span>
+          <button class="btn btn-outline-secondary" id="sig" ${d.next ? "" : "disabled"} aria-label="Siguiente"><i class="bi bi-chevron-right"></i></button></div>`;
+      document.getElementById("ant").onclick = () => { pagina--; cargar(); };
+      document.getElementById("sig").onclick = () => { pagina++; cargar(); };
+    } catch (e) { OR.aviso(e.message, "error"); }
+  }
+  const abrir = (e) => { const tr = e.target.closest("tr[data-id]"); if (tr) location.href = `/app/rutas/${tr.dataset.id}/`; };
+  document.getElementById("filas").addEventListener("click", abrir);
+  document.getElementById("filas").addEventListener("keydown", (e) => { if (e.key === "Enter") abrir(e); });
+  form.addEventListener("change", () => { pagina = 1; cargar(); });
+  form.addEventListener("reset", () => setTimeout(() => { pagina = 1; cargar(); }));
+  OR.api("vehiculos/").then((d) => document.getElementById("vehiculo").innerHTML += (d.results || d).map((v) => `<option value="${v.id}">${OR.esc(v.placa)}</option>`).join(""));
+  cargar();
+})();
+</script>
+{% endblock %}

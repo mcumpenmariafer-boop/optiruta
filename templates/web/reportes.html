@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% load static %}
+{% block contenido %}
+<div class="panel mb-3">
+  <div class="panel-cuerpo">
+    <form class="row g-2 align-items-end" id="filtros">
+      <div class="col-6 col-md-2"><label class="form-label" for="desde">Desde</label><input type="date" class="form-control" id="desde" name="desde"></div>
+      <div class="col-6 col-md-2"><label class="form-label" for="hasta">Hasta</label><input type="date" class="form-control" id="hasta" name="hasta"></div>
+      <div class="col-md-3"><label class="form-label" for="vehiculo">Vehículo</label><select class="form-select" id="vehiculo" name="vehiculo"><option value="">Toda la flota</option></select></div>
+      <div class="col-md-5 d-flex gap-2">
+        <div class="btn-group" role="group" aria-label="Rangos rápidos">
+          <button type="button" class="btn btn-outline-secondary" data-dias="0">Hoy</button>
+          <button type="button" class="btn btn-outline-secondary" data-dias="6">7 días</button>
+          <button type="button" class="btn btn-outline-secondary" data-dias="29">30 días</button>
+        </div>
+        <div class="ms-auto d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary" data-formato="csv" data-cargando="Generando…"><i class="bi bi-filetype-csv me-1"></i>CSV</button>
+          <button type="button" class="btn btn-asfalto" data-formato="pdf" data-cargando="Generando…"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="franja-kpi mb-3" id="kpis"></div>
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3 small text-suave">
+  <i class="bi bi-moon-stars"></i>Cada día a las 22:00 una tarea automática (Celery) reprograma los pedidos no entregados y envía este reporte en PDF a supervisión.
+  <button class="btn btn-sm btn-outline-secondary ms-auto" id="btn-cierre" data-cargando="Ejecutando…"><i class="bi bi-play-circle me-1"></i>Ejecutar cierre del día ahora</button>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-7">
+    <div class="panel h-100"><div class="panel-cab"><h2>Kilómetros por día: manual vs optimizado</h2></div>
+      <div class="panel-cuerpo"><canvas id="g-dias" height="140" role="img" aria-label="Gráfico de kilómetros por día"></canvas></div></div>
+  </div>
+  <div class="col-lg-5">
+    <div class="panel h-100"><div class="panel-cab"><h2>Entregas por vehículo</h2></div>
+      <div class="panel-cuerpo"><canvas id="g-vehiculos" height="190" role="img" aria-label="Gráfico de entregas por vehículo"></canvas></div></div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="panel"><div class="panel-cab"><h2>Comparativa por vehículo</h2></div>
+      <div class="tabla-scroll"><table class="tabla"><thead><tr><th>Vehículo</th><th>Conductor</th><th class="num">Rutas</th><th class="num">Entregados</th>
+        <th class="num">% entrega</th><th class="num">Km</th><th class="num">Ahorro km</th><th class="num">Pedidos/h</th></tr></thead><tbody id="t-vehiculos"></tbody></table></div></div>
+  </div>
+  <div class="col-lg-5">
+    <div class="panel mb-3"><div class="panel-cab"><h2>Antes y después del sistema</h2></div>
+      <div class="tabla-scroll"><table class="tabla"><thead><tr><th>Indicador</th><th class="num">Manual</th><th class="num">OptiRuta</th><th class="num">Mejora</th></tr></thead>
+      <tbody id="t-antes"></tbody></table></div></div>
+    <div class="panel"><div class="panel-cab"><h2>Entregas por zona</h2></div><div class="panel-cuerpo" id="zonas"></div></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'vendor/chart.umd.min.js' %}"></script>
+<script>
+(() => {
+  const form = document.getElementById("filtros");
+  const graficos = {};
+  Chart.defaults.font.family = "Barlow, sans-serif";
+  Chart.defaults.color = "#5B6B79";
+
+  const fijarRango = (dias) => {
+    const h = new Date(); const d = new Date(); d.setDate(h.getDate() - dias);
+    const iso = (x) => { x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 10); };
+    form.desde.value = iso(d); form.hasta.value = iso(h);
+  };
+  const params = () => { const p = new URLSearchParams(); for (const [k, v] of new FormData(form)) if (v) p.set(k, v); return p; };
+
+  async function cargar() {
+    document.getElementById("kpis").innerHTML = OR.cargando();
+    try {
+      const d = await OR.api(`reportes/eficiencia/?${params()}`);
+      const r = d.resumen;
+      document.getElementById("kpis").innerHTML = `
+        <div class="kpi verde"><div class="valor">${OR.num(r.porcentaje_entrega)}<small>%</small></div><div class="etiqueta">Entregas efectivas (${r.pedidos_entregados}/${r.pedidos_asignados})</div></div>
+        <div class="kpi"><div class="valor">${OR.num(r.km_recorridos, 0)}<small>km</small></div><div class="etiqueta">Recorridos en ${r.rutas_cerradas} rutas</div></div>
+        <div class="kpi verde"><div class="valor">${OR.num(r.ahorro_km, 0)}<small>km</small></div><div class="etiqueta">Ahorrados (−${OR.num(r.ahorro_pct)}%)</div></div>
+        <div class="kpi verde"><div class="valor"><small>S/</small>${OR.num(r.ahorro_soles, 0)}</div><div class="etiqueta">Combustible ahorrado</div></div>
+        <div class="kpi verde"><div class="valor">${OR.num(r.co2_evitado_kg, 0)}<small>kg</small></div><div class="etiqueta">CO₂ evitado</div></div>
+        <div class="kpi"><div class="valor">${r.tiempo_promedio_min}<small>min</small></div><div class="etiqueta">Tiempo promedio por ruta</div></div>`;
+
+      const dias = d.por_dia;
+      graficos.dias?.destroy();
+      graficos.dias = new Chart(document.getElementById("g-dias"), {
+        type: "line",
+        data: { labels: dias.map((x) => OR.fecha(x.fecha).slice(0, 6)), datasets: [
+          { label: "Orden de llegada (manual)", data: dias.map((x) => x.km_sin_optimizar), borderColor: "#9AA7B3", borderDash: [6, 5], pointRadius: 2, tension: .25 },
+          { label: "Ruta optimizada", data: dias.map((x) => x.km), borderColor: "#F5B400", backgroundColor: "rgba(245,180,0,.15)", fill: true, pointRadius: 3, borderWidth: 3, tension: .25 },
+        ] },
+        options: { interaction: { mode: "index", intersect: false }, plugins: { legend: { position: "bottom" } }, scales: { y: { beginAtZero: true, title: { display: true, text: "km" } } } },
+      });
+      const vs = d.por_vehiculo;
+      graficos.veh?.destroy();
+      graficos.veh = new Chart(document.getElementById("g-vehiculos"), {
+        type: "bar",
+        data: { labels: vs.map((v) => v.placa), datasets: [
+          { label: "Entregados", data: vs.map((v) => v.entregados), backgroundColor: "#1E8E5A", borderRadius: 4 },
+          { label: "No entregados", data: vs.map((v) => v.asignados - v.entregados), backgroundColor: "#D64545", borderRadius: 4 },
+        ] },
+        options: { indexAxis: "y", plugins: { legend: { position: "bottom" } }, scales: { x: { stacked: true }, y: { stacked: true } } },
+      });
+
+      document.getElementById("t-vehiculos").innerHTML = vs.length ? vs.map((v) => `
+        <tr><td class="cifra fw-bold text-nowrap">${OR.esc(v.placa)}</td><td>${OR.esc(v.conductor)}</td><td class="num">${v.rutas}</td>
+        <td class="num">${v.entregados}/${v.asignados}</td><td class="num">${OR.num(v.porcentaje_entrega)}%</td><td class="num">${OR.num(v.km)}</td>
+        <td class="num text-success">${OR.num(v.ahorro_km)}</td><td class="num">${OR.num(v.pedidos_por_hora, 2)}</td></tr>`).join("")
+        : `<tr><td colspan="8">${OR.vacio("Sin rutas cerradas en el periodo.")}</td></tr>`;
+
+      // Cuadro antes vs después (insumo directo para el informe)
+      const filas = [
+        ["Km planificados", r.km_sin_optimizar, r.km_sin_optimizar - r.ahorro_km],
+        ["Combustible (S/)", r.ahorro_soles && r.ahorro_km ? r.ahorro_soles / r.ahorro_km * r.km_sin_optimizar : 0,
+          r.ahorro_soles && r.ahorro_km ? r.ahorro_soles / r.ahorro_km * (r.km_sin_optimizar - r.ahorro_km) : 0],
+        ["Km promedio por ruta", r.rutas_cerradas ? r.km_sin_optimizar / r.rutas_cerradas : 0, r.rutas_cerradas ? (r.km_sin_optimizar - r.ahorro_km) / r.rutas_cerradas : 0],
+        ["Hojas de papel (planillas)", r.pedidos_asignados * 2, 0],
+      ];
+      document.getElementById("t-antes").innerHTML = filas.map(([n, a, b]) => {
+        const mejora = a ? (100 * (b - a) / a) : 0;
+        return `<tr><td>${n}</td><td class="num">${OR.num(a)}</td><td class="num">${OR.num(b)}</td><td class="num text-success fw-semibold">${OR.num(mejora)}%</td></tr>`;
+      }).join("");
+
+      document.getElementById("zonas").innerHTML = d.por_zona.length ? d.por_zona.map((z) => `
+        <div class="mb-2"><div class="d-flex justify-content-between small"><span><span class="zona-punto" style="background:${z.color}"></span>${OR.esc(z.zona)}</span>
+        <span>${z.entregados}/${z.total} · <b>${OR.num(z.porcentaje_entrega)}%</b></span></div>
+        <div class="capacidad"><div style="width:${z.porcentaje_entrega}%;background:${z.color}"></div></div></div>`).join("")
+        + (d.motivos_fallo.length ? `<div class="small text-suave mt-3 mb-1">Principales motivos de fallo</div>` + d.motivos_fallo.map((m) => `<div class="small d-flex justify-content-between"><span>${OR.esc(m.observacion)}</span><b>${m.total}</b></div>`).join("") : "")
+        : OR.vacio("Sin datos.");
+    } catch (e) { OR.aviso(e.message, "error"); document.getElementById("kpis").innerHTML = ""; }
+  }
+
+  document.querySelectorAll("[data-dias]").forEach((b) => b.onclick = () => { fijarRango(Number(b.dataset.dias)); cargar(); });
+  form.addEventListener("change", cargar);
+  document.querySelectorAll("[data-formato]").forEach((b) => b.onclick = async () => {
+    const formato = b.dataset.formato;
+    const p = params(); p.set("formato", formato);
+    try {
+      await OR.conCarga(b, async () => {
+        const resp = await OR.api(`reportes/eficiencia/?${p}`, { crudo: true });
+        if (!resp.ok) throw new Error("No se pudo exportar el reporte.");
+        const a = document.createElement("a"); a.href = URL.createObjectURL(await resp.blob());
+        a.download = `eficiencia_${form.desde.value}_${form.hasta.value}.${formato}`; a.click();
+      });
+    } catch (e) { OR.aviso(e.message, "error"); }
+  });
+
+  // Cierre del día con Celery (normalmente se ejecuta solo a las 22:00)
+  document.getElementById("btn-cierre").onclick = async (e) => {
+    if (!confirm("Se reprogramarán para mañana los pedidos no entregados de hoy y se enviará el resumen con el PDF a supervisión. ¿Continuar?")) return;
+    try {
+      const r = await OR.conCarga(e.currentTarget, () => OR.api("reportes/cierre-diario/", { metodo: "POST", datos: {} }));
+      if (r.modo === "inmediato") {
+        const x = r.resultado;
+        OR.aviso(`Cierre del ${OR.fecha(x.fecha)} listo: ${x.reprogramados_sin_ruta + x.reprogramados_fallidos} pedido(s) reprogramados para mañana. Resumen enviado a ${x.correo_enviado_a.length} correo(s).`, "ok", 8000);
+      } else {
+        OR.aviso("Tarea enviada a Celery. El worker la ejecutará en segundos y enviará el resumen por correo.", "ok", 8000);
+      }
+      cargar();
+    } catch (err) { OR.aviso(err.message, "error"); }
+  };
+  OR.api("vehiculos/").then((d) => document.getElementById("vehiculo").innerHTML += (d.results || d).map((v) => `<option value="${v.id}">${OR.esc(v.placa)} · ${OR.esc(v.conductor_nombre || "")}</option>`).join(""));
+  fijarRango(13);
+  cargar();
+})();
+</script>
+{% endblock %}

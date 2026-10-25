@@ -1,0 +1,26 @@
+# Núcleo
+Django==5.2.18
+djangorestframework==3.18.3
+djangorestframework-simplejwt==5.5.1
+django-filter==26.2
+drf-spectacular==0.30.0
+psycopg[binary]==3.3.6
+python-dotenv==1.2.3
+reportlab==5.0.1
+whitenoise==6.12.0
+dj-database-url==3.1.2
+
+# Tiempo real (WebSockets)
+channels==4.3.2
+daphne==4.2.3
+channels-redis==4.3.0
+
+# Tareas en segundo plano
+celery==5.6.3
+redis==8.1.0
+pywin32>=306; sys_platform == "win32"   # necesario para la cola de Celery en carpetas en Windows
+
+# Pruebas
+pytest==9.1.1
+pytest-django==4.14.0
+pytest-cov==7.1.0

@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div id="cabecera" class="mb-3">{{ "" }}</div>
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="panel">
+      <div class="panel-cab"><h2>Secuencia de paradas</h2><span class="ms-auto small text-suave" id="avance"></span></div>
+      <div class="panel-cuerpo"><ol class="linea-tiempo" id="paradas"></ol></div>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="panel mb-3"><div class="p-2"><div id="mapa" class="mapa" style="height:440px"></div></div></div>
+    <div class="panel mb-3" id="panel-kpi" hidden>
+      <div class="panel-cab"><h2>Indicadores de la ruta</h2></div>
+      <div class="panel-cuerpo" id="kpi"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-cab"><h2>Bitácora</h2><span class="small text-suave ms-2">Trazabilidad de cada acción</span></div>
+      <div class="tabla-scroll"><table class="tabla"><tbody id="eventos"></tbody></table></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modal-cancelar" tabindex="-1" aria-labelledby="t-cancelar" aria-hidden="true">
+  <div class="modal-dialog"><form class="modal-content" id="form-cancelar" novalidate>
+    <div class="modal-header"><h3 class="modal-title" id="t-cancelar">Cancelar ruta</h3><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <div class="modal-body"><p class="text-suave">Los pedidos volverán a la lista de pendientes.</p>
+      <label class="form-label" for="motivo">Motivo</label>
+      <textarea class="form-control" id="motivo" rows="3" minlength="5" required></textarea>
+      <div class="invalid-feedback">Escribe el motivo (mínimo 5 caracteres).</div></div>
+    <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Volver</button>
+      <button class="btn btn-fallar" type="submit">Cancelar ruta</button></div>
+  </form></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const id = location.pathname.split("/").filter(Boolean).pop();
+  const usuario = OR.sesion.usuario();
+  const gestion = ["ADMIN", "SUPERVISOR"].includes(usuario.rol);
+  const mapa = OR.mapa("mapa", [DEPOSITO.lat, DEPOSITO.lng], 13);
+  L.marker([DEPOSITO.lat, DEPOSITO.lng], { icon: OR.iconos.deposito() }).addTo(mapa);
+  const capa = L.layerGroup().addTo(mapa);
+  let camionRuta = null;
+
+  async function cargar() {
+    try {
+      const [r, eventos] = await Promise.all([OR.api(`rutas/${id}/`), OR.api(`rutas/${id}/eventos/`)]);
+      pintar(r);
+      document.getElementById("eventos").innerHTML = eventos.map((e) => `
+        <tr><td class="small text-suave text-nowrap">${OR.fecha(e.registrado.slice(0, 10))} ${OR.hora(e.registrado)}</td>
+        <td><span class="badge text-bg-light">${OR.esc(e.tipo.replace(/_/g, " "))}</span></td>
+        <td class="small">${OR.esc(e.descripcion)}</td><td class="small text-suave">${OR.esc(e.usuario || "")}</td></tr>`).join("");
+    } catch (e) {
+      document.getElementById("cabecera").innerHTML = `<div class="panel">${OR.vacio(e.message, "exclamation-circle")}</div>`;
+    }
+  }
+
+  function pintar(r) {
+    const cerradas = r.paradas.filter((p) => !["PENDIENTE", "EN_CAMINO"].includes(p.estado)).length;
+    document.getElementById("cabecera").innerHTML = `
+      <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
+        <h2 class="mb-0 cifra" style="font-size:32px">${OR.esc(r.codigo)}</h2>${OR.estado(r.estado, r.estado_display)}
+        <span class="text-suave">${OR.fecha(r.fecha)} · ${OR.esc(r.vehiculo_placa)} · ${OR.esc(r.conductor || "")}</span>
+        <div class="ms-auto d-flex gap-2">
+          <a class="btn btn-outline-secondary" href="#" id="btn-pdf"><i class="bi bi-file-earmark-pdf me-1"></i>Hoja de ruta</a>
+          ${gestion && r.estado === "PLANIFICADA" ? `<button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modal-cancelar">Cancelar ruta</button>` : ""}
+          ${r.estado === "EN_CURSO" ? `<button class="btn btn-asfalto" id="btn-cerrar" ${cerradas < r.paradas.length ? "disabled title='Hay paradas pendientes'" : ""} data-cargando="Cerrando…">Cerrar ruta</button>` : ""}
+        </div>
+      </div>
+      <div class="franja-kpi">
+        <div class="kpi"><div class="valor">${OR.num(r.km_estimados)}<small>km</small></div><div class="etiqueta">Distancia optimizada</div></div>
+        <div class="kpi"><div class="valor" style="color:var(--tinta-suave)">${OR.num(r.km_sin_optimizar)}<small>km</small></div><div class="etiqueta">Si se seguía el orden de llegada</div></div>
+        <div class="kpi verde"><div class="valor">−${OR.num(r.ahorro_pct)}<small>%</small></div><div class="etiqueta">Recorrido ahorrado</div></div>
+        <div class="kpi"><div class="valor">${r.minutos_estimados}<small>min</small></div><div class="etiqueta">Tiempo estimado</div></div>
+        <div class="kpi"><div class="valor">${OR.num(r.peso_total_kg, 0)}<small>kg</small></div><div class="etiqueta">${r.bultos_total} bultos</div></div>
+      </div>`;
+    document.getElementById("avance").textContent = `${cerradas} de ${r.paradas.length} atendidas`;
+    document.getElementById("paradas").innerHTML = r.paradas.map((p) => `
+      <li class="${p.estado}"><span class="hito">${p.orden}</span>
+        <div class="tarjeta-parada">
+          <div class="d-flex justify-content-between gap-2"><b>${OR.esc(p.pedido.cliente)}</b>${OR.estado(p.estado, p.estado_display)}</div>
+          <div class="small">${OR.esc(p.pedido.direccion)} · <span class="text-suave">${OR.esc(p.pedido.zona)}</span></div>
+          <div class="small text-suave mt-1">${OR.esc(p.pedido.codigo)} · ${OR.num(p.pedido.peso_kg)} kg ·
+            estimada <b class="cifra">${(p.hora_estimada || "").slice(0, 5)}</b>${p.hora_real ? ` · real <b class="cifra">${OR.hora(p.hora_real)}</b>` : ""}
+            ${p.pedido.prioridad !== "NORMAL" ? " · " + OR.prioridad(p.pedido.prioridad) : ""} · ventana ${OR.esc(p.pedido.ventana_horaria)}</div>
+          ${p.observacion ? `<div class="small mt-1"><i class="bi bi-chat-left-text me-1"></i>${OR.esc(p.observacion)}</div>` : ""}
+        </div></li>`).join("");
+
+    capa.clearLayers();
+    const dep = [DEPOSITO.lat, DEPOSITO.lng];
+    const linea = [dep, ...r.paradas.map((p) => [p.pedido.lat, p.pedido.lng]), dep];
+    L.polyline(linea, { color: "#14324F", weight: 8, opacity: .2 }).addTo(capa);
+    L.polyline(linea, { color: "#F5B400", weight: 4 }).addTo(capa);
+    r.paradas.forEach((p) => L.marker([p.pedido.lat, p.pedido.lng], { icon: OR.iconos.parada(p.orden, OR.COLOR_ESTADO[p.estado]) })
+      .addTo(capa).bindPopup(`<b>${p.orden}. ${OR.esc(p.pedido.cliente)}</b><br>${OR.esc(p.pedido.direccion)}`));
+    camionRuta = null;
+    if (r.posicion_actual && r.estado === "EN_CURSO") camionRuta = L.marker([r.posicion_actual.lat, r.posicion_actual.lng], { icon: OR.iconos.camion(true, r.vehiculo_tipo), zIndexOffset: 900 }).addTo(capa);
+    if (!window.__ajustado) { mapa.fitBounds(linea, { padding: [30, 30] }); window.__ajustado = true; }
+
+    if (r.indicador) {
+      const k = r.indicador;
+      document.getElementById("panel-kpi").hidden = false;
+      document.getElementById("kpi").innerHTML = `
+        <div class="row g-3 text-center">
+          <div class="col-4"><div class="cifra fs-2 fw-bold text-success">${OR.num(k.porcentaje_entrega)}%</div><div class="small text-suave">Entrega (${k.pedidos_entregados}/${k.pedidos_asignados})</div></div>
+          <div class="col-4"><div class="cifra fs-2 fw-bold">${OR.num(k.km)}</div><div class="small text-suave">km recorridos</div></div>
+          <div class="col-4"><div class="cifra fs-2 fw-bold">${k.tiempo_min}</div><div class="small text-suave">minutos en ruta</div></div>
+          <div class="col-4"><div class="cifra fs-4 fw-bold text-danger">${k.pedidos_fallidos}</div><div class="small text-suave">Fallidos</div></div>
+          <div class="col-4"><div class="cifra fs-4 fw-bold text-success">S/ ${OR.num(k.ahorro_soles, 2)}</div><div class="small text-suave">Combustible ahorrado</div></div>
+          <div class="col-4"><div class="cifra fs-4 fw-bold text-success">${OR.num(k.co2_evitado_kg, 2)} kg</div><div class="small text-suave">CO₂ evitado</div></div>
+        </div>`;
+    }
+    document.getElementById("btn-pdf").onclick = async (e) => {
+      e.preventDefault();
+      try {
+        const resp = await OR.api(`rutas/${id}/hoja-ruta/`, { crudo: true });
+        if (!resp.ok) throw new Error("No se pudo generar el PDF.");
+        window.open(URL.createObjectURL(await resp.blob()), "_blank");
+      } catch (err) { OR.aviso(err.message, "error"); }
+    };
+    const bc = document.getElementById("btn-cerrar");
+    if (bc) bc.onclick = async () => {
+      try { await OR.conCarga(bc, () => OR.api(`rutas/${id}/cerrar/`, { metodo: "POST" })); OR.aviso("Ruta cerrada. KPIs calculados.", "ok"); cargar(); }
+      catch (err) { OR.aviso(err.message, "error"); }
+    };
+  }
+
+  document.getElementById("form-cancelar").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget; f.classList.add("was-validated");
+    if (!f.checkValidity()) return;
+    try {
+      await OR.api(`rutas/${id}/cancelar/`, { metodo: "POST", datos: { motivo: document.getElementById("motivo").value } });
+      bootstrap.Modal.getInstance("#modal-cancelar").hide();
+      OR.aviso("Ruta cancelada; los pedidos volvieron a pendientes.", "ok");
+      cargar();
+    } catch (err) { OR.aviso(err.message, "error"); }
+  });
+  // En vivo: si cambia algo de esta ruta, se vuelve a cargar (solo supervisión recibe eventos)
+  let pend = null;
+  if (gestion) OR.enVivo((tipo, d) => {
+    if (String(d.ruta) !== String(id)) return;
+    if (tipo === "posicion" && camionRuta) { camionRuta.setLatLng([d.lat, d.lng]); return; }
+    clearTimeout(pend); pend = setTimeout(cargar, 400);
+  });
+  cargar();
+})();
+</script>
+{% endblock %}

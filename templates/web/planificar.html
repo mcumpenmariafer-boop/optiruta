@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+{% load static %}
+{% block contenido %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  <p class="mb-0 text-suave" style="max-width:640px">Arrastra los pedidos hacia un vehículo. La barra muestra cuánto de su capacidad ocupas; luego pulsa <b>Optimizar</b> para ver el orden de visita y cuántos kilómetros ahorras.</p>
+  <button class="btn btn-asfalto ms-auto" id="btn-auto" data-cargando="Planificando la flota…">
+    <i class="bi bi-magic me-2"></i>Planificar toda la flota automáticamente
+  </button>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-4">
+    <div class="panel">
+      <div class="panel-cab"><h2>Pedidos pendientes</h2><span class="ms-auto cifra fs-5" id="contador">0</span></div>
+      <div class="panel-cuerpo pb-2">
+        <div class="row g-2 mb-2">
+          <div class="col-6"><select class="form-select form-select-sm" id="f-zona" aria-label="Filtrar por zona"><option value="">Todas las zonas</option></select></div>
+          <div class="col-6"><select class="form-select form-select-sm" id="f-prioridad" aria-label="Filtrar por prioridad">
+            <option value="">Toda prioridad</option><option value="URGENTE">Urgente</option><option value="ALTA">Alta</option><option value="NORMAL">Normal</option>
+          </select></div>
+        </div>
+        <div id="bolsa" class="bolsa-pedidos">{{ "" }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-8">
+    <div id="carriles" class="row g-3">{{ "" }}</div>
+  </div>
+</div>
+
+<!-- Previsualización de la ruta optimizada -->
+<div class="modal fade" id="modal-prev" tabindex="-1" aria-labelledby="titulo-prev" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="titulo-prev">Ruta optimizada</h3>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-lg-7">
+            <div id="mapa-prev" class="mapa" style="height:460px"></div>
+            <div class="d-flex gap-3 small text-suave mt-2">
+              <span><span class="d-inline-block align-middle me-1" style="width:24px;border-top:4px solid #F5B400"></span>Ruta optimizada</span>
+              <span><span class="d-inline-block align-middle me-1" style="width:24px;border-top:2px dashed #7C8B98"></span>Orden de llegada (manual)</span>
+            </div>
+          </div>
+          <div class="col-lg-5">
+            <div id="resumen-prev"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="me-auto small text-suave" id="algoritmo-prev"></div>
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Seguir editando</button>
+        <button class="btn btn-ruta" id="btn-confirmar" data-cargando="Creando ruta…"><i class="bi bi-check2-circle me-2"></i>Confirmar ruta</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'vendor/Sortable.min.js' %}"></script>
+<script>
+(() => {
+  let pedidos = new Map();      // id -> pedido
+  let vehiculos = [];
+  let zonas = [];
+  let previo = null;            // { vehiculo, ids, datos }
+  let mapaPrev = null, capaPrev = null;
+  const modal = new bootstrap.Modal("#modal-prev");
+  const preseleccion = (new URLSearchParams(location.search).get("pedidos") || "").split(",").filter(Boolean).map(Number);
+
+  const ficha = (p) => `
+    <div class="pedido-ficha" data-id="${p.id}" style="--zona:${p.punto.zona_color}">
+      <div class="cab"><span class="cod">${OR.esc(p.codigo)}</span>${OR.prioridad(p.prioridad)}</div>
+      <div class="text-truncate">${OR.esc(p.punto.cliente_nombre)}</div>
+      <div class="meta d-flex justify-content-between">
+        <span><span class="zona-punto" style="background:${p.punto.zona_color}"></span>${OR.esc(p.punto.zona_nombre)}</span>
+        <span>${OR.num(p.peso_kg)} kg · ${p.bultos} bto${p.bultos > 1 ? "s" : ""}</span>
+      </div>
+      ${p.ventana_inicio ? `<div class="meta"><i class="bi bi-clock me-1"></i>${OR.esc(p.ventana_horaria)}</div>` : ""}
+    </div>`;
+
+  function idsEn(contenedor) { return [...contenedor.querySelectorAll(".pedido-ficha")].map((e) => Number(e.dataset.id)); }
+
+  function actualizarCarril(carril) {
+    const v = vehiculos.find((x) => x.id === Number(carril.dataset.vehiculo));
+    const ids = idsEn(carril.querySelector(".columna-vehiculo"));
+    const kg = ids.reduce((s, id) => s + Number(pedidos.get(id).peso_kg), 0);
+    const bultos = ids.reduce((s, id) => s + pedidos.get(id).bultos, 0);
+    const pctKg = 100 * kg / Number(v.capacidad_kg), pctB = 100 * bultos / v.capacidad_bultos;
+    const pct = Math.max(pctKg, pctB);
+    const barra = carril.querySelector(".capacidad");
+    barra.className = "capacidad " + (pct > 100 ? "llena" : pct > 80 ? "media" : "");
+    barra.firstElementChild.style.width = Math.min(100, pct) + "%";
+    carril.querySelector(".carga").innerHTML =
+      `<b class="${pct > 100 ? "text-danger" : ""}">${OR.num(kg)} / ${OR.num(v.capacidad_kg, 0)} kg</b> · ${bultos}/${v.capacidad_bultos} bultos`;
+    carril.querySelector(".columna-vehiculo").classList.toggle("vacia", !ids.length);
+    const btn = carril.querySelector(".btn-optimizar");
+    btn.disabled = !ids.length || pct > 100;
+    btn.title = pct > 100 ? "La carga supera la capacidad del vehículo" : "";
+    carril.querySelector(".aviso-cap").classList.toggle("d-none", pct <= 100);
+  }
+
+  function filtrarBolsa() {
+    const z = document.getElementById("f-zona").value, pr = document.getElementById("f-prioridad").value;
+    let visibles = 0;
+    document.querySelectorAll("#bolsa .pedido-ficha").forEach((el) => {
+      const p = pedidos.get(Number(el.dataset.id));
+      const ok = (!z || String(p.punto.zona) === z) && (!pr || p.prioridad === pr);
+      el.style.display = ok ? "" : "none";
+      if (ok) visibles++;
+    });
+    document.getElementById("contador").textContent = visibles;
+  }
+
+  async function cargar() {
+    document.getElementById("bolsa").innerHTML = OR.cargando();
+    try {
+      const [lista, vs, zs] = await Promise.all([
+        OR.api("pedidos/sin-asignar/?page_size=200"), OR.api("vehiculos/?disponible=true"), OR.api("zonas/"),
+      ]);
+      zonas = zs;
+      const items = lista.results || lista;
+      pedidos = new Map(items.map((p) => [p.id, p]));
+      vehiculos = (vs.results || vs).filter((v) => v.conductor && !v.ruta_activa);
+      const sel = document.getElementById("f-zona");
+      sel.innerHTML = '<option value="">Todas las zonas</option>' + zonas.map((z) => `<option value="${z.id}">${OR.esc(z.nombre)}</option>`).join("");
+      pintar();
+    } catch (e) { OR.aviso(e.message, "error"); }
+  }
+
+  function pintar() {
+    const libres = [...pedidos.values()].filter((p) => !(vehiculos.length && preseleccion.includes(p.id)));
+    document.getElementById("bolsa").innerHTML = libres.length ? libres.map(ficha).join("")
+      : OR.vacio("No hay pedidos pendientes. ¡Todo está asignado!", "check2-all");
+    const cont = document.getElementById("carriles");
+    if (!vehiculos.length) {
+      cont.innerHTML = `<div class="col-12"><div class="panel">${OR.vacio("Todos los vehículos tienen una ruta activa. Cuando cierren su ruta aparecerán aquí.", "truck")}</div></div>`;
+    } else {
+      cont.innerHTML = vehiculos.map((v, i) => `
+        <div class="col-md-6">
+          <div class="carril" data-vehiculo="${v.id}">
+            <div class="carril-cab">
+              <span class="placa">${OR.esc(v.placa)}</span>
+              <div class="small lh-sm"><b>${OR.esc(v.tipo_display)}</b><br><span class="text-suave">${OR.esc(v.conductor_nombre || "")}</span></div>
+            </div>
+            <div class="capacidad mb-1"><div style="width:0"></div></div>
+            <div class="small text-suave carga mb-2"></div>
+            <div class="small text-danger aviso-cap d-none mb-2"><i class="bi bi-exclamation-triangle me-1"></i>Excede la capacidad: retira algún pedido.</div>
+            <div class="columna-vehiculo vacia">${i === 0 ? preseleccion.filter((id) => pedidos.has(id)).map((id) => ficha(pedidos.get(id))).join("") : ""}</div>
+            <button class="btn btn-ruta w-100 mt-2 btn-optimizar" data-cargando="Optimizando…" disabled><i class="bi bi-lightning-charge me-1"></i>Optimizar</button>
+          </div>
+        </div>`).join("");
+    }
+    const opciones = { group: "pedidos", animation: 150, onSort: () => { document.querySelectorAll(".carril").forEach(actualizarCarril); filtrarBolsa(); } };
+    new Sortable(document.getElementById("bolsa"), opciones);
+    document.querySelectorAll(".columna-vehiculo").forEach((c) => new Sortable(c, opciones));
+    document.querySelectorAll(".carril").forEach((c) => {
+      actualizarCarril(c);
+      c.querySelector(".btn-optimizar").onclick = (e) => previsualizar(c, e.currentTarget);
+    });
+    filtrarBolsa();
+  }
+
+  async function previsualizar(carril, boton) {
+    const vehiculo = Number(carril.dataset.vehiculo);
+    const ids = idsEn(carril.querySelector(".columna-vehiculo"));
+    try {
+      const d = await OR.conCarga(boton, () => OR.api("rutas/previsualizar/", { metodo: "POST", datos: { vehiculo, pedidos: ids } }));
+      previo = { vehiculo, ids, datos: d };
+      mostrarPrevio(d);
+    } catch (e) { OR.aviso(e.message, "error"); }
+  }
+
+  function mostrarPrevio(d) {
+    const o = d.optimizada, s = d.sin_optimizar, a = d.ahorro;
+    document.getElementById("titulo-prev").textContent = `Ruta optimizada · ${d.vehiculo}`;
+    document.getElementById("algoritmo-prev").textContent = `${d.algoritmo} · ${d.iteraciones_2opt} iteraciones 2-opt`;
+    document.getElementById("resumen-prev").innerHTML = `
+      <div class="comparativa mb-2">
+        <div class="antes"><div class="small text-suave mb-1">Orden de llegada</div><div class="km">${OR.num(s.km)}</div><div class="small">km · ${s.minutos} min</div>
+          ${s.ventanas_incumplidas ? `<div class="small text-danger mt-1">${s.ventanas_incumplidas} ventana(s) incumplida(s)</div>` : ""}</div>
+        <div class="despues"><div class="small mb-1"><b>Optimizada</b></div><div class="km">${OR.num(o.km)}</div><div class="small">km · ${o.minutos} min</div>
+          ${o.ventanas_incumplidas ? `<div class="small text-danger mt-1">${o.ventanas_incumplidas} ventana(s) imposible(s) de cumplir</div>` : `<div class="small text-success mt-1">Todas las ventanas se cumplen</div>`}</div>
+      </div>
+      ${o.paradas.length < 3 || a.km <= 0.05 ? `
+      <div class="sello-ahorro" style="background:var(--cielo-suave);color:var(--asfalto)">
+        <i class="bi bi-info-circle fs-3"></i>
+        <div class="small lh-sm">${o.paradas.length < 3 ? "Con menos de 3 paradas solo hay un orden razonable, así que no hay kilómetros que ahorrar. Agrega más pedidos para ver la optimización." : "El orden de llegada ya era el mejor posible o hubo que priorizar urgentes y ventanas horarias."}</div>
+      </div>` : `
+      <div class="sello-ahorro">
+        <div class="pct">−${OR.num(a.pct)}%</div>
+        <div class="small lh-sm"><b>${OR.num(a.km)} km menos</b> y ${a.minutos} min ahorrados<br>
+        ${OR.num(a.ahorro_litros, 2)} L de combustible (S/ ${OR.num(a.ahorro_soles, 2)}) · ${OR.num(a.co2_evitado_kg, 2)} kg de CO₂ evitados</div>
+      </div>`}
+      ${d.excede_jornada ? `<div class="alert alert-warning small mt-2 mb-0"><i class="bi bi-exclamation-triangle me-1"></i>La ruta dura ${o.minutos} min y supera la jornada de ${d.jornada_max_min} min. Considera repartir pedidos en otro vehículo.</div>` : ""}
+      <div class="small text-suave mt-2 mb-1">Carga ${OR.num(d.peso_kg)} kg (${OR.num(d.uso_capacidad_pct)}% de capacidad) · ${d.bultos} bultos</div>
+      <ol class="linea-tiempo mt-3">
+        ${o.paradas.map((p) => `<li><span class="hito">${p.orden}</span>
+          <div class="tarjeta-parada"><div class="d-flex justify-content-between"><b>${OR.esc(p.cliente)}</b><span class="cifra">${p.hora_estimada}</span></div>
+          <div class="small text-suave">${OR.esc(p.codigo)} · ${OR.num(p.distancia_km, 2)} km desde la anterior ${p.prioridad !== "NORMAL" ? "· " + OR.prioridad(p.prioridad) : ""}
+          ${p.espera_min ? ` · espera ${p.espera_min} min` : ""}${p.tardanza_min ? ` · <span class="text-danger">llega ${p.tardanza_min} min tarde</span>` : ""}</div></div></li>`).join("")}
+      </ol>`;
+    modal.show();
+    setTimeout(() => {
+      if (!mapaPrev) { mapaPrev = OR.mapa("mapa-prev", [d.deposito.lat, d.deposito.lng], 13); capaPrev = L.layerGroup().addTo(mapaPrev);
+        L.marker([d.deposito.lat, d.deposito.lng], { icon: OR.iconos.deposito() }).addTo(mapaPrev); }
+      mapaPrev.invalidateSize();
+      capaPrev.clearLayers();
+      const dep = [d.deposito.lat, d.deposito.lng];
+      const lineaS = [dep, ...s.paradas.map((p) => [p.lat, p.lng]), dep];
+      const lineaO = [dep, ...o.paradas.map((p) => [p.lat, p.lng]), dep];
+      L.polyline(lineaS, { color: "#7C8B98", weight: 2, dashArray: "6 6" }).addTo(capaPrev);
+      L.polyline(lineaO, { color: "#14324F", weight: 8, opacity: .25 }).addTo(capaPrev);
+      L.polyline(lineaO, { color: "#F5B400", weight: 4 }).addTo(capaPrev);
+      o.paradas.forEach((p) => L.marker([p.lat, p.lng], { icon: OR.iconos.parada(p.orden, p.prioridad === "URGENTE" ? "#D64545" : "#14324F") })
+        .addTo(capaPrev).bindTooltip(`${p.orden}. ${p.cliente} · ${p.hora_estimada}`));
+      mapaPrev.fitBounds(lineaO, { padding: [30, 30] });
+    }, 250);
+  }
+
+  document.getElementById("btn-confirmar").onclick = async (e) => {
+    if (!previo) return;
+    try {
+      const ruta = await OR.conCarga(e.currentTarget, () => OR.api("rutas/planificar/", {
+        metodo: "POST", datos: { vehiculo: previo.vehiculo, pedidos: previo.ids, fecha: OR.hoyISO() },
+      }));
+      modal.hide();
+      OR.aviso(`Ruta ${ruta.codigo} creada: ${OR.num(ruta.km_estimados)} km. El conductor ya la puede ver.`, "ok", 6000);
+      previo = null;
+      history.replaceState(null, "", location.pathname);
+      preseleccion.length = 0;
+      cargar();
+    } catch (err) { OR.aviso(err.message, "error"); }
+  };
+
+  document.getElementById("btn-auto").onclick = async (e) => {
+    if (!confirm("Se repartirán todos los pedidos pendientes entre los vehículos libres (por zona, prioridad y capacidad). ¿Continuar?")) return;
+    try {
+      const r = await OR.conCarga(e.currentTarget, () => OR.api("rutas/planificar-automatico/", { metodo: "POST", datos: { fecha: OR.hoyISO() } }));
+      const km = r.rutas.reduce((s, x) => s + Number(x.km_estimados), 0);
+      OR.aviso(`${r.rutas.length} ruta(s) creadas (${OR.num(km)} km en total). ${r.pedidos_sin_asignar.length ? r.pedidos_sin_asignar.length + " pedido(s) no cupieron y siguen pendientes." : "Todos los pedidos quedaron asignados."}`, "ok", 8000);
+      cargar();
+    } catch (err) { OR.aviso(err.message, "error"); }
+  };
+
+  document.getElementById("f-zona").onchange = filtrarBolsa;
+  document.getElementById("f-prioridad").onchange = filtrarBolsa;
+  cargar();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,168 @@
+{% load static %}<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Iniciar sesión · OptiRuta</title>
+  <link rel="icon" href="{% static 'img/logo.svg' %}">
+    <link href="{% static 'vendor/fonts/fuentes.css' %}" rel="stylesheet">
+  <link href="{% static 'vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
+  <link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet">
+  <link href="{% static 'css/app.css' %}" rel="stylesheet">
+  <style>
+    body { background: var(--asfalto-3); }
+    .login { display: grid; grid-template-columns: 1fr 460px; min-height: 100vh; }
+    .escena { position: relative; overflow: hidden; background: var(--asfalto); }
+    .escena svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+    .escena .texto { position: absolute; left: 48px; top: 44px; max-width: 460px; color: #fff; pointer-events: none; }
+    .escena .texto img { width: 52px; }
+    .escena h1 { color: #fff; font-size: 54px; line-height: .95; margin: 18px 0 10px; font-weight: 700; }
+    .escena p { color: #B9CADA; font-size: 17px; margin: 0; }
+    .tablero {
+      position: absolute; left: 48px; bottom: 40px; display: flex; gap: 0; color: #fff;
+      background: rgba(14, 36, 56, .82); border: 1px solid rgba(255,255,255,.12); border-radius: 12px;
+      backdrop-filter: blur(4px); overflow: hidden;
+    }
+    .tablero > div { padding: 12px 20px; border-right: 1px solid rgba(255,255,255,.1); }
+    .tablero > div:last-child { border-right: 0; }
+    .tablero .v { font-family: var(--fuente-c); font-size: 30px; font-weight: 700; line-height: 1; }
+    .tablero .l { font-size: 12.5px; color: #9FB4C8; margin-top: 4px; }
+    .tablero .manual .v { color: #9FB4C8; text-decoration: line-through; }
+    .tablero .opt .v { color: var(--senal); }
+    .tablero .ahorro .v { color: #6FD3A0; }
+    .pista { position: absolute; right: 24px; bottom: 44px; color: #9FB4C8; font-size: 14px; pointer-events: none; text-align: right; }
+    .pista kbd { background: rgba(255,255,255,.1); color: #fff; font-family: var(--fuente); }
+
+    .lado-form { background: var(--papel); display: flex; align-items: center; justify-content: center; padding: 40px 36px; }
+    .form-login { width: 100%; max-width: 360px; }
+    .form-login h2 { font-size: 34px; margin-bottom: 4px; }
+    .form-login .sub { color: var(--tinta-suave); margin-bottom: 28px; }
+    .form-login .form-control { padding: 12px 14px; font-size: 16px; background: #fff; }
+    .campo-icono { position: relative; }
+    .campo-icono .form-control { padding-left: 42px; }
+    .campo-icono > i { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--tinta-suave); font-size: 18px; }
+    .campo-icono .ver { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: none; color: var(--tinta-suave); padding: 6px 10px; }
+    .btn-entrar { padding: 13px; font-size: 18px; font-family: var(--fuente-c); font-weight: 700; letter-spacing: .02em; }
+    .error-login { display: none; background: var(--incidencia-suave); color: var(--incidencia); border-radius: var(--radio-sm); padding: 10px 12px; font-size: 14px; margin-bottom: 16px; }
+    .demo { font-size: 13.5px; color: var(--tinta-suave); border-top: 1px solid var(--linea); margin-top: 28px; padding-top: 16px; }
+    .demo button { border: 0; background: none; padding: 0; color: var(--cielo); font-weight: 600; }
+    .demo table td { padding: 2px 10px 2px 0; }
+    .demo code { color: var(--asfalto); background: var(--papel-2); padding: 1px 6px; border-radius: 4px; cursor: pointer; }
+    @media (max-width: 900px) {
+      .login { grid-template-columns: 1fr; grid-template-rows: 340px auto; }
+      .escena .texto { left: 20px; top: 18px; }
+      .escena .texto img { width: 40px; }
+      .escena h1 { font-size: 28px; margin-top: 10px; }
+      .escena p, .pista { display: none; }
+      .tablero { left: 12px; right: 12px; bottom: 12px; }
+      .tablero > div { padding: 6px 10px; flex: 1; }
+      .tablero .v { font-size: 20px; }
+      .tablero .l { font-size: 11px; }
+    }
+  </style>
+</head>
+<body>
+<div class="login">
+  <section class="escena" aria-label="Demostración interactiva del optimizador de rutas">
+    <svg id="lienzo" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div class="texto">
+      <img src="{% static 'img/logo.svg' %}" alt="">
+      <h1>Cada kilómetro<br>cuenta.</h1>
+      <p>OptiRuta ordena las entregas del día para recorrer menos, llegar a tiempo y gastar menos combustible.</p>
+    </div>
+    <div class="tablero" aria-live="polite">
+      <div class="manual"><div class="v cifra" id="km-manual">0,0</div><div class="l">km en orden de llegada</div></div>
+      <div class="opt"><div class="v cifra" id="km-opt">0,0</div><div class="l">km optimizados</div></div>
+      <div class="ahorro"><div class="v cifra" id="km-ahorro">0%</div><div class="l">menos recorrido</div></div>
+    </div>
+    <div class="pista">Arrastra los puntos de entrega <i class="bi bi-hand-index"></i><br>Doble clic agrega uno nuevo</div>
+  </section>
+
+  <section class="lado-form">
+    <form class="form-login" id="form-login" novalidate>
+      <h2>Iniciar sesión</h2>
+      <p class="sub">Ingresa con tu usuario de la empresa.</p>
+      <div class="error-login" id="error" role="alert"></div>
+      <div class="mb-3">
+        <label class="form-label" for="usuario">Usuario</label>
+        <div class="campo-icono">
+          <i class="bi bi-person"></i>
+          <input class="form-control" id="usuario" name="username" autocomplete="username" required minlength="3" autofocus>
+          <div class="invalid-feedback">Escribe tu usuario.</div>
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label" for="clave">Contraseña</label>
+        <div class="campo-icono">
+          <i class="bi bi-lock"></i>
+          <input class="form-control" id="clave" name="password" type="password" autocomplete="current-password" required>
+          <button type="button" class="ver" id="ver-clave" aria-label="Mostrar contraseña"><i class="bi bi-eye"></i></button>
+          <div class="invalid-feedback">Escribe tu contraseña.</div>
+        </div>
+      </div>
+      <button class="btn btn-ruta w-100 btn-entrar mt-2" type="submit" data-cargando="Verificando…">Entrar</button>
+      <div class="text-center mt-3"><a href="/seguimiento/">¿Esperas un pedido? Consulta su estado aquí</a></div>
+
+      <div class="demo">
+        <button type="button" data-bs-toggle="collapse" data-bs-target="#cuentas-demo">Usuarios de prueba</button>
+        <div class="collapse mt-2" id="cuentas-demo">
+          <table>
+            <tr><td>Administrador</td><td><code data-u="admin">admin</code></td></tr>
+            <tr><td>Supervisor</td><td><code data-u="supervisor">supervisor</code></td></tr>
+            <tr><td>Conductor</td><td><code data-u="conductor1">conductor1</code></td></tr>
+          </table>
+          <div class="mt-1">Contraseña: <code data-c="1">Optiruta2026</code></div>
+        </div>
+      </div>
+    </form>
+  </section>
+</div>
+
+<script src="{% static 'vendor/bootstrap/bootstrap.bundle.min.js' %}"></script>
+<script src="{% static 'js/api.js' %}"></script>
+<script src="{% static 'js/login-escena.js' %}"></script>
+<script>
+(() => {
+  const params = new URLSearchParams(location.search);
+  const form = document.getElementById("form-login");
+  const error = document.getElementById("error");
+  const mostrar = (t) => { error.textContent = t; error.style.display = "block"; };
+  if (params.get("motivo") === "expirada") mostrar("Tu sesión expiró. Vuelve a ingresar.");
+  if (params.get("motivo") === "salio") { error.style.display = "none"; }
+  if (OR.sesion.usuario() && !params.get("motivo")) location.replace("/");
+
+  document.getElementById("ver-clave").onclick = function () {
+    const c = document.getElementById("clave");
+    c.type = c.type === "password" ? "text" : "password";
+    this.innerHTML = `<i class="bi bi-eye${c.type === "password" ? "" : "-slash"}"></i>`;
+  };
+  document.querySelectorAll(".demo code").forEach((el) => el.onclick = () => {
+    if (el.dataset.u) document.getElementById("usuario").value = el.dataset.u;
+    document.getElementById("clave").value = "Optiruta2026";
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    error.style.display = "none";
+    form.classList.add("was-validated");
+    if (!form.checkValidity()) return;
+    const boton = form.querySelector("button[type=submit]");
+    try {
+      const datos = await OR.conCarga(boton, () => OR.api("auth/login/", {
+        metodo: "POST", reintento: false,
+        datos: { username: form.username.value.trim(), password: form.password.value },
+      }));
+      OR.sesion.guardar(datos);
+      const siguiente = params.get("siguiente");
+      location.href = siguiente && siguiente.startsWith("/app/") ? siguiente
+        : datos.usuario.rol === "CONDUCTOR" ? "/app/conductor/" : "/app/dashboard/";
+    } catch (err) {
+      mostrar(err.estado === 429 ? "Demasiados intentos. Espera un minuto." : err.message);
+      form.password.value = "";
+      form.classList.remove("was-validated");
+    }
+  });
+})();
+</script>
+</body>
+</html>

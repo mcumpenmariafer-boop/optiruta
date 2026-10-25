@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="row g-3">
+  <div class="col-xl-7">
+    <div class="panel">
+      <div class="panel-cab"><h2>Vehículos</h2>
+        <button class="btn btn-asfalto btn-sm ms-auto" data-bs-toggle="modal" data-bs-target="#modal-vehiculo"><i class="bi bi-plus-lg me-1"></i>Agregar vehículo</button></div>
+      <div class="tabla-scroll"><table class="tabla">
+        <thead><tr><th>Placa</th><th>Tipo</th><th class="num">Capacidad</th><th>Conductor</th><th>Situación</th><th>Disponible</th></tr></thead>
+        <tbody id="t-vehiculos"></tbody></table></div>
+    </div>
+  </div>
+  <div class="col-xl-5">
+    <div class="panel">
+      <div class="panel-cab"><h2>Conductores</h2>
+        <button class="btn btn-asfalto btn-sm ms-auto d-none" id="btn-nuevo-conductor" data-bs-toggle="modal" data-bs-target="#modal-conductor"><i class="bi bi-person-plus me-1"></i>Agregar</button></div>
+      <div class="tabla-scroll"><table class="tabla">
+        <thead><tr><th>Nombre</th><th>Licencia</th><th>Celular</th><th>Vehículo</th></tr></thead>
+        <tbody id="t-conductores"></tbody></table></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modal-vehiculo" tabindex="-1" aria-labelledby="t-veh" aria-hidden="true">
+  <div class="modal-dialog"><form class="modal-content" id="form-vehiculo" novalidate>
+    <div class="modal-header"><h3 class="modal-title" id="t-veh">Agregar vehículo</h3><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <div class="modal-body">
+      <div class="alert alert-danger d-none" role="alert" id="err-veh"></div>
+      <div class="row g-2">
+        <div class="col-6"><label class="form-label" for="placa">Placa</label>
+          <input class="form-control text-uppercase" id="placa" required pattern="[A-Za-z0-9]{3}-[0-9]{3}" maxlength="7" placeholder="ABC-123">
+          <div class="invalid-feedback">Formato ABC-123.</div></div>
+        <div class="col-6"><label class="form-label" for="tipo">Tipo</label>
+          <select class="form-select" id="tipo"><option value="FURGONETA">Furgoneta</option><option value="CAMION">Camión</option><option value="MOTO">Motocicleta</option></select></div>
+        <div class="col-6"><label class="form-label" for="cap-kg">Capacidad (kg)</label>
+          <input class="form-control" type="number" id="cap-kg" min="1" max="10000" step="1" required><div class="invalid-feedback">Entre 1 y 10 000 kg.</div></div>
+        <div class="col-6"><label class="form-label" for="cap-b">Capacidad (bultos)</label>
+          <input class="form-control" type="number" id="cap-b" min="1" max="1000" required><div class="invalid-feedback">Al menos 1.</div></div>
+        <div class="col-12"><label class="form-label" for="conductor">Conductor asignado</label>
+          <select class="form-select" id="conductor"><option value="">Sin conductor por ahora</option></select></div>
+      </div>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+      <button class="btn btn-ruta" type="submit">Agregar vehículo</button></div>
+  </form></div>
+</div>
+
+<div class="modal fade" id="modal-conductor" tabindex="-1" aria-labelledby="t-con" aria-hidden="true">
+  <div class="modal-dialog"><form class="modal-content" id="form-conductor" novalidate>
+    <div class="modal-header"><h3 class="modal-title" id="t-con">Agregar conductor</h3><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <div class="modal-body">
+      <div class="alert alert-danger d-none" role="alert" id="err-con"></div>
+      <div class="row g-2">
+        <div class="col-6"><label class="form-label" for="c-nombre">Nombres</label><input class="form-control" id="c-nombre" required></div>
+        <div class="col-6"><label class="form-label" for="c-apellido">Apellidos</label><input class="form-control" id="c-apellido" required></div>
+        <div class="col-6"><label class="form-label" for="c-usuario">Usuario</label><input class="form-control" id="c-usuario" required minlength="4" pattern="[a-z0-9_.]+">
+          <div class="invalid-feedback">Minúsculas y números, mínimo 4.</div></div>
+        <div class="col-6"><label class="form-label" for="c-clave">Contraseña</label><input class="form-control" type="password" id="c-clave" required minlength="8">
+          <div class="invalid-feedback">Mínimo 8 caracteres.</div></div>
+        <div class="col-6"><label class="form-label" for="c-licencia">Licencia</label><input class="form-control text-uppercase" id="c-licencia" required pattern="[A-Za-z][0-9]{8}" maxlength="9" placeholder="Q12345678">
+          <div class="invalid-feedback">Una letra y 8 dígitos.</div></div>
+        <div class="col-6"><label class="form-label" for="c-celular">Celular</label>
+          <div class="input-group has-validation"><span class="input-group-text">+51</span>
+            <input class="form-control" id="c-celular" required data-tipo="celular" maxlength="9" inputmode="numeric" placeholder="987654321">
+            <div class="invalid-feedback">9 dígitos empezando con 9.</div></div></div>
+        <div class="col-12"><label class="form-label" for="c-email">Correo</label>
+          <input class="form-control" id="c-email" type="email" data-tipo="email" required maxlength="120" placeholder="conductor@gmail.com">
+          <div class="invalid-feedback">Escribe un correo válido.</div></div>
+      </div>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+      <button class="btn btn-ruta" type="submit">Agregar conductor</button></div>
+  </form></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const esAdmin = OR.sesion.usuario().rol === "ADMIN";
+  if (esAdmin) document.getElementById("btn-nuevo-conductor").classList.remove("d-none");
+
+  async function cargar() {
+    try {
+      const [vs, cs] = await Promise.all([OR.api("vehiculos/?page_size=100"), OR.api("conductores/?page_size=100")]);
+      const vehiculos = vs.results, conductores = cs.results;
+      document.getElementById("t-vehiculos").innerHTML = vehiculos.map((v) => `
+        <tr><td><span class="carril-cab m-0"><span class="placa">${OR.esc(v.placa)}</span></span></td>
+        <td>${OR.esc(v.tipo_display)}</td><td class="num">${OR.num(v.capacidad_kg, 0)} kg · ${v.capacidad_bultos} b</td>
+        <td>${OR.esc(v.conductor_nombre || "—")}</td>
+        <td>${v.ruta_activa ? `<a href="/app/rutas/${v.ruta_activa.id}/">${OR.estado(v.ruta_activa.estado)}</a>` : '<span class="text-suave small">En almacén</span>'}</td>
+        <td><div class="form-check form-switch"><input class="form-check-input disp" type="checkbox" data-id="${v.id}" ${v.disponible ? "checked" : ""} aria-label="Disponible ${v.placa}"></div></td></tr>`).join("");
+      document.getElementById("t-conductores").innerHTML = conductores.map((c) => `
+        <tr><td>${OR.esc(c.nombre)}<div class="small text-suave">${OR.esc(c.username)}</div></td><td class="cifra">${OR.esc(c.licencia)}</td>
+        <td>${OR.esc(c.celular)}</td><td>${OR.esc(c.vehiculo_placa || "—")}</td></tr>`).join("");
+      document.getElementById("conductor").innerHTML = '<option value="">Sin conductor por ahora</option>' +
+        conductores.filter((c) => !c.vehiculo_placa && c.activo).map((c) => `<option value="${c.id}">${OR.esc(c.nombre)}</option>`).join("");
+    } catch (e) { OR.aviso(e.message, "error"); }
+  }
+
+  document.getElementById("t-vehiculos").addEventListener("change", async (e) => {
+    if (!e.target.classList.contains("disp")) return;
+    try { await OR.api(`vehiculos/${e.target.dataset.id}/`, { metodo: "PATCH", datos: { disponible: e.target.checked } });
+      OR.aviso(e.target.checked ? "Vehículo disponible para planificar." : "Vehículo fuera de servicio.", "ok"); }
+    catch (err) { e.target.checked = !e.target.checked; OR.aviso(err.message, "error"); }
+  });
+
+  function enviar(idForm, idError, accion) {
+    const f = document.getElementById(idForm), err = document.getElementById(idError);
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault(); err.classList.add("d-none");
+      f.classList.add("was-validated");
+      if (!f.checkValidity()) return;
+      try {
+        await accion();
+        bootstrap.Modal.getInstance(f.closest(".modal")).hide();
+        f.reset(); f.classList.remove("was-validated");
+        cargar();
+      } catch (x) { err.textContent = x.message; err.classList.remove("d-none"); }
+    });
+  }
+  const val = (id) => document.getElementById(id).value.trim();
+  enviar("form-vehiculo", "err-veh", async () => {
+    await OR.api("vehiculos/", { metodo: "POST", datos: {
+      placa: val("placa").toUpperCase(), tipo: val("tipo"), capacidad_kg: val("cap-kg"),
+      capacidad_bultos: Number(val("cap-b")), conductor: val("conductor") ? Number(val("conductor")) : null } });
+    OR.aviso("Vehículo agregado.", "ok");
+  });
+  enviar("form-conductor", "err-con", async () => {
+    const u = await OR.api("usuarios/", { metodo: "POST", datos: {
+      username: val("c-usuario"), password: val("c-clave"), first_name: val("c-nombre"), last_name: val("c-apellido"),
+      rol: "CONDUCTOR", telefono: val("c-celular"), email: val("c-email") } });
+    try {
+      await OR.api("conductores/", { metodo: "POST", datos: { usuario: u.id, licencia: val("c-licencia").toUpperCase(), celular: val("c-celular") } });
+    } catch (x) { await OR.api(`usuarios/${u.id}/`, { metodo: "DELETE" }).catch(() => {}); throw x; }
+    OR.aviso("Conductor agregado.", "ok");
+  });
+  OR.validarEnVivo(document.getElementById("form-vehiculo"));
+  OR.validarEnVivo(document.getElementById("form-conductor"));
+  cargar();
+})();
+</script>
+{% endblock %}

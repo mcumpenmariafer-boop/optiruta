@@ -1,0 +1,8 @@
+OptiRuta - Ruta {{ ruta.codigo }} cerrada
+
+Vehículo: {{ ruta.vehiculo.placa }}
+Conductor: {{ ruta.vehiculo.conductor.usuario.get_full_name }}
+Entregados: {{ kpi.pedidos_entregados }} de {{ kpi.pedidos_asignados }} ({{ kpi.porcentaje_entrega }}%)
+Fallidos: {{ kpi.pedidos_fallidos }} | Reprogramados: {{ kpi.pedidos_reprogramados }}
+Km recorridos: {{ kpi.km }} | Ahorro por optimización: {{ kpi.ahorro_km }} km ({{ kpi.ahorro_pct }}%)
+CO2 evitado: {{ kpi.co2_evitado_kg }} kg | Ahorro en combustible: S/ {{ kpi.ahorro_soles }}

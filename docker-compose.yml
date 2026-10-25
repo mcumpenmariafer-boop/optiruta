@@ -1,0 +1,57 @@
+# Levanta todo:   docker compose up --build
+#   db      PostgreSQL 17
+#   redis   cola de Celery y canal de WebSockets
+#   web     OptiRuta (Daphne: HTTP + WebSockets)  → http://localhost:8000
+#   worker  Celery: ejecuta las tareas en segundo plano
+#   beat    Celery: dispara el cierre diario a las 22:00
+x-entorno: &entorno
+  DEBUG: "False"
+  SECRET_KEY: "cambia-esta-clave-en-produccion"
+  ALLOWED_HOSTS: "localhost,127.0.0.1,0.0.0.0"
+  DB_ENGINE: postgres
+  DB_NAME: optiruta
+  DB_USER: postgres
+  DB_PASSWORD: postgres
+  DB_HOST: db
+  DB_PORT: "5432"
+  REDIS_URL: redis://redis:6379/0
+  CELERY_TASK_ALWAYS_EAGER: "False"
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: optiruta
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - datos_pg:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"   # 5433 para no chocar con tu PostgreSQL local (5432)
+
+  redis:
+    image: redis:7-alpine
+
+  web:
+    build: .
+    environment:
+      <<: *entorno
+      CARGAR_DEMO: "1"
+    ports:
+      - "8000:8000"
+    depends_on: [db, redis]
+
+  worker:
+    build: .
+    command: celery -A config worker -l info
+    environment: *entorno
+    depends_on: [db, redis]
+
+  beat:
+    build: .
+    command: celery -A config beat -l info
+    environment: *entorno
+    depends_on: [db, redis]
+
+volumes:
+  datos_pg:

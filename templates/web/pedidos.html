@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="panel">
+  <div class="panel-cuerpo">
+    <form class="row g-2 align-items-end" id="filtros">
+      <div class="col-md-3"><label class="form-label" for="q">Buscar</label>
+        <input class="form-control" id="q" name="search" placeholder="Código, cliente o dirección"></div>
+      <div class="col-6 col-md-2"><label class="form-label" for="zona">Zona</label>
+        <select class="form-select" id="zona" name="zona"><option value="">Todas</option></select></div>
+      <div class="col-6 col-md-2"><label class="form-label" for="prioridad">Prioridad</label>
+        <select class="form-select" id="prioridad" name="prioridad"><option value="">Todas</option>
+          <option value="URGENTE">Urgente</option><option value="ALTA">Alta</option><option value="NORMAL">Normal</option></select></div>
+      <div class="col-6 col-md-2"><label class="form-label" for="fecha">Fecha programada</label>
+        <input type="date" class="form-control" id="fecha" name="fecha"></div>
+      <div class="col-6 col-md-3 d-flex gap-2">
+        <button class="btn btn-outline-secondary" type="reset" title="Limpiar filtros"><i class="bi bi-x-lg"></i></button>
+        <button class="btn btn-asfalto flex-grow-1" type="button" data-bs-toggle="modal" data-bs-target="#modal-pedido"><i class="bi bi-plus-lg me-1"></i>Nuevo pedido</button>
+      </div>
+    </form>
+  </div>
+  <div class="d-flex align-items-center gap-2 px-3 py-2 border-top border-bottom bg-light" id="barra-seleccion">
+    <span class="small text-suave" id="info-seleccion">Selecciona pedidos para planificar una ruta con ellos.</span>
+    <button class="btn btn-ruta btn-sm ms-auto" id="btn-planificar" disabled><i class="bi bi-signpost-split me-1"></i>Planificar seleccionados</button>
+  </div>
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead><tr>
+        <th style="width:36px"><input class="form-check-input" type="checkbox" id="todos" aria-label="Seleccionar todos"></th>
+        <th>Código</th><th>Cliente y dirección</th><th>Zona</th><th>Prioridad</th><th>Ventana</th>
+        <th class="num">Peso</th><th class="num">Bultos</th><th>Fecha</th><th>Estado</th><th></th>
+      </tr></thead>
+      <tbody id="filas"></tbody>
+    </table>
+  </div>
+  <div class="d-flex align-items-center px-3 py-2" id="paginacion"></div>
+</div>
+
+<!-- Nuevo pedido -->
+<div class="modal fade" id="modal-pedido" tabindex="-1" aria-labelledby="titulo-pedido" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <form class="modal-content" id="form-pedido" novalidate>
+      <div class="modal-header"><h3 class="modal-title" id="titulo-pedido">Nuevo pedido de despacho</h3>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+      <div class="modal-body">
+        <div class="alert alert-danger d-none" id="error-pedido" role="alert"></div>
+        <div class="btn-group mb-3" role="group" aria-label="Destino">
+          <input type="radio" class="btn-check" name="modo" id="modo-existente" value="existente" checked>
+          <label class="btn btn-outline-secondary" for="modo-existente">Cliente registrado</label>
+          <input type="radio" class="btn-check" name="modo" id="modo-nuevo" value="nuevo">
+          <label class="btn btn-outline-secondary" for="modo-nuevo">Cliente nuevo</label>
+        </div>
+        <div id="bloque-existente" class="mb-3">
+          <label class="form-label" for="punto">Punto de entrega</label>
+          <select class="form-select" id="punto" required><option value="">Elige un cliente…</option></select>
+          <div class="invalid-feedback">Elige el cliente que recibe el pedido.</div>
+        </div>
+        <div id="bloque-nuevo" class="d-none">
+          <div class="row g-2">
+            <div class="col-md-6"><label class="form-label" for="cliente">Nombre del cliente</label>
+              <input class="form-control" id="cliente" minlength="3" maxlength="120"><div class="invalid-feedback">Mínimo 3 caracteres.</div></div>
+            <div class="col-md-6"><label class="form-label" for="telefono">Celular</label>
+              <div class="input-group has-validation">
+                <span class="input-group-text">🇵🇪 +51</span>
+                <input class="form-control" id="telefono" data-tipo="celular" maxlength="9" inputmode="numeric" autocomplete="tel-national" placeholder="987654321">
+                <div class="invalid-feedback">El celular tiene 9 dígitos y empieza con 9.</div>
+              </div></div>
+            <div class="col-md-6"><label class="form-label" for="email-cliente">Correo <span class="text-suave fw-normal">(opcional)</span></label>
+              <input class="form-control" id="email-cliente" type="email" data-tipo="email" maxlength="120" placeholder="cliente@gmail.com" autocomplete="email">
+              <div class="invalid-feedback">Escribe un correo válido.</div></div>
+            <div class="col-md-6"><label class="form-label" for="direccion">Dirección</label>
+              <input class="form-control" id="direccion" minlength="5" maxlength="200"><div class="invalid-feedback">Escribe la dirección.</div></div>
+            <div class="col-md-6"><label class="form-label" for="zona-nueva">Zona</label>
+              <select class="form-select" id="zona-nueva"></select></div>
+            <div class="col-12"><label class="form-label" for="referencia">Referencia</label><input class="form-control" id="referencia" maxlength="200"></div>
+            <div class="col-12">
+              <label class="form-label">Ubicación de entrega</label>
+              <div class="small text-suave mb-1">Haz clic en el mapa donde se entrega. Puedes arrastrar el marcador para ajustarlo.</div>
+              <div id="mapa-punto" class="mapa" style="height:300px; cursor: crosshair"></div>
+              <div class="small mt-1" id="coords"><i class="bi bi-geo-alt me-1"></i>Sin ubicación marcada.</div>
+            </div>
+          </div>
+        </div>
+        <hr>
+        <div class="row g-2">
+          <div class="col-6 col-md-3"><label class="form-label" for="peso">Peso (kg)</label>
+            <input class="form-control" type="number" id="peso" min="0.1" max="10000" step="0.1" required><div class="invalid-feedback">Entre 0.1 y 10 000 kg.</div></div>
+          <div class="col-6 col-md-3"><label class="form-label" for="bultos">Bultos</label>
+            <input class="form-control" type="number" id="bultos" min="1" max="500" value="1" required><div class="invalid-feedback">Al menos 1.</div></div>
+          <div class="col-6 col-md-3"><label class="form-label" for="prioridad-n">Prioridad</label>
+            <select class="form-select" id="prioridad-n"><option value="NORMAL">Normal</option><option value="ALTA">Alta</option><option value="URGENTE">Urgente</option></select></div>
+          <div class="col-6 col-md-3"><label class="form-label" for="fecha-n">Fecha de entrega</label>
+            <input class="form-control" type="date" id="fecha-n" required><div class="invalid-feedback">No puede ser una fecha pasada.</div></div>
+          <div class="col-6 col-md-3"><label class="form-label" for="v-ini">Ventana desde</label><input class="form-control" type="time" id="v-ini" min="06:00" max="22:00"></div>
+          <div class="col-6 col-md-3"><label class="form-label" for="v-fin">Ventana hasta</label><input class="form-control" type="time" id="v-fin" min="06:00" max="22:00">
+            <div class="invalid-feedback" id="v-fin-msg">Debe ser posterior al inicio.</div></div>
+          <div class="col-md-6"><label class="form-label" for="descripcion">Contenido</label><input class="form-control" id="descripcion" maxlength="200" placeholder="Ej. Abarrotes"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-ruta" type="submit" data-cargando="Guardando…"><i class="bi bi-plus-lg me-1"></i>Registrar pedido</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const seleccion = new Set();
+  let pagina = 1, zonas = [], marcador = null, mapaPunto = null, coordenadas = null;
+  const form = document.getElementById("filtros");
+
+  function query() {
+    const p = new URLSearchParams();
+    for (const [k, v] of new FormData(form)) if (v) p.set(k, v);
+    p.set("page", pagina);
+    return p.toString();
+  }
+
+  async function cargar() {
+    const filas = document.getElementById("filas");
+    filas.innerHTML = `<tr><td colspan="11">${OR.cargando()}</td></tr>`;
+    try {
+      const d = await OR.api(`pedidos/sin-asignar/?${query()}`);
+      filas.innerHTML = d.results.length ? d.results.map((p) => `
+        <tr>
+          <td><input class="form-check-input sel" type="checkbox" value="${p.id}" ${seleccion.has(p.id) ? "checked" : ""} aria-label="Seleccionar ${p.codigo}"></td>
+          <td class="cifra fw-bold">${OR.esc(p.codigo)}</td>
+          <td><div class="fw-semibold">${OR.esc(p.punto.cliente_nombre)}</div><div class="small text-suave">${OR.esc(p.punto.direccion)}</div></td>
+          <td><span class="zona-punto" style="background:${p.punto.zona_color}"></span>${OR.esc(p.punto.zona_nombre)}</td>
+          <td>${OR.prioridad(p.prioridad)}</td>
+          <td class="small">${OR.esc(p.ventana_horaria)}</td>
+          <td class="num">${OR.num(p.peso_kg)} kg</td>
+          <td class="num">${p.bultos}</td>
+          <td class="small">${OR.fecha(p.fecha_programada)}</td>
+          <td>${OR.estado(p.estado, p.estado === "PENDIENTE" ? "Pendiente" : "Reprogramado")}</td>
+          <td>${p.estado === "PENDIENTE" ? `<button class="btn btn-sm btn-link text-danger borrar" data-id="${p.id}" title="Eliminar pedido"><i class="bi bi-trash"></i></button>` : ""}</td>
+        </tr>`).join("") : `<tr><td colspan="11">${OR.vacio("No hay pedidos pendientes con estos filtros.")}</td></tr>`;
+      const total = Math.ceil(d.count / 20) || 1;
+      document.getElementById("paginacion").innerHTML = `
+        <span class="small text-suave">${d.count} pedido(s)</span>
+        <div class="ms-auto btn-group btn-group-sm">
+          <button class="btn btn-outline-secondary" ${d.previous ? "" : "disabled"} id="ant" aria-label="Página anterior"><i class="bi bi-chevron-left"></i></button>
+          <span class="btn btn-outline-secondary disabled">${pagina} / ${total}</span>
+          <button class="btn btn-outline-secondary" ${d.next ? "" : "disabled"} id="sig" aria-label="Página siguiente"><i class="bi bi-chevron-right"></i></button>
+        </div>`;
+      document.getElementById("ant").onclick = () => { pagina--; cargar(); };
+      document.getElementById("sig").onclick = () => { pagina++; cargar(); };
+    } catch (e) { OR.aviso(e.message, "error"); }
+  }
+
+  function refrescarSeleccion() {
+    const n = seleccion.size;
+    document.getElementById("btn-planificar").disabled = !n;
+    document.getElementById("info-seleccion").textContent = n ? `${n} pedido(s) seleccionado(s)` : "Selecciona pedidos para planificar una ruta con ellos.";
+  }
+
+  document.getElementById("filas").addEventListener("change", (e) => {
+    if (!e.target.classList.contains("sel")) return;
+    const id = Number(e.target.value);
+    e.target.checked ? seleccion.add(id) : seleccion.delete(id);
+    refrescarSeleccion();
+  });
+  document.getElementById("todos").onchange = (e) => {
+    document.querySelectorAll(".sel").forEach((c) => { c.checked = e.target.checked; c.dispatchEvent(new Event("change", { bubbles: true })); });
+  };
+  document.getElementById("filas").addEventListener("click", async (e) => {
+    const b = e.target.closest(".borrar");
+    if (!b || !confirm("¿Eliminar este pedido pendiente?")) return;
+    try { await OR.api(`pedidos/${b.dataset.id}/`, { metodo: "DELETE" }); OR.aviso("Pedido eliminado.", "ok"); cargar(); }
+    catch (err) { OR.aviso(err.message, "error"); }
+  });
+  document.getElementById("btn-planificar").onclick = () => location.href = `/app/planificar/?pedidos=${[...seleccion].join(",")}`;
+  let espera;
+  form.addEventListener("input", () => { clearTimeout(espera); espera = setTimeout(() => { pagina = 1; cargar(); }, 300); });
+  form.addEventListener("reset", () => setTimeout(() => { pagina = 1; cargar(); }));
+
+  /* -------- Nuevo pedido -------- */
+  const fp = document.getElementById("form-pedido");
+  const errorBox = document.getElementById("error-pedido");
+  const modoNuevo = () => document.getElementById("modo-nuevo").checked;
+  document.getElementById("fecha-n").min = OR.hoyISO();
+  document.getElementById("fecha-n").value = OR.hoyISO();
+
+  fp.querySelectorAll("[name=modo]").forEach((r) => r.onchange = () => {
+    document.getElementById("bloque-nuevo").classList.toggle("d-none", !modoNuevo());
+    document.getElementById("bloque-existente").classList.toggle("d-none", modoNuevo());
+    document.getElementById("punto").required = !modoNuevo();
+    ["cliente", "direccion"].forEach((id) => document.getElementById(id).required = modoNuevo());
+    if (modoNuevo() && !mapaPunto) {
+      mapaPunto = OR.mapa("mapa-punto", [DEPOSITO.lat, DEPOSITO.lng], 13);
+      mapaPunto.on("click", (ev) => {
+        coordenadas = ev.latlng;
+        if (marcador) marcador.setLatLng(ev.latlng); else marcador = L.marker(ev.latlng, { draggable: true }).addTo(mapaPunto);
+        marcador.on("dragend", () => { coordenadas = marcador.getLatLng(); pintarCoords(); });
+        pintarCoords();
+        // sugerir la zona más cercana
+        const cercana = zonas.reduce((a, z) => (!a || mapaPunto.distance(ev.latlng, [z.centro_lat, z.centro_lng]) < mapaPunto.distance(ev.latlng, [a.centro_lat, a.centro_lng]) ? z : a), null);
+        if (cercana) document.getElementById("zona-nueva").value = cercana.id;
+      });
+    }
+    setTimeout(() => mapaPunto && mapaPunto.invalidateSize(), 200);
+  });
+  const pintarCoords = () => {
+    const c = document.getElementById("coords");
+    c.className = "small mt-1 text-success fw-semibold";
+    c.innerHTML = `<i class="bi bi-check-circle me-1"></i>Ubicación marcada: ${coordenadas.lat.toFixed(6)}, ${coordenadas.lng.toFixed(6)}`;
+  };
+  document.getElementById("modal-pedido").addEventListener("shown.bs.modal", () => mapaPunto && mapaPunto.invalidateSize());
+  OR.validarEnVivo(fp);
+
+  fp.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errorBox.classList.add("d-none");
+    const ini = document.getElementById("v-ini").value, fin = document.getElementById("v-fin").value;
+    const vf = document.getElementById("v-fin");
+    vf.setCustomValidity("");
+    if ((ini && !fin) || (!ini && fin)) { vf.setCustomValidity("x"); document.getElementById("v-fin-msg").textContent = "Indica inicio y fin, o deja ambos vacíos."; }
+    else if (ini && fin && fin <= ini) { vf.setCustomValidity("x"); document.getElementById("v-fin-msg").textContent = "Debe ser posterior al inicio."; }
+    fp.classList.add("was-validated");
+    if (!fp.checkValidity()) return;
+    if (modoNuevo() && !coordenadas) { errorBox.textContent = "Marca la ubicación del cliente en el mapa."; errorBox.classList.remove("d-none"); return; }
+    const boton = fp.querySelector("[type=submit]");
+    try {
+      await OR.conCarga(boton, async () => {
+        let punto = document.getElementById("punto").value;
+        if (modoNuevo()) {
+          const nuevo = await OR.api("puntos-entrega/", { metodo: "POST", datos: {
+            cliente_nombre: document.getElementById("cliente").value, direccion: document.getElementById("direccion").value,
+            referencia: document.getElementById("referencia").value, telefono: document.getElementById("telefono").value,
+            email: document.getElementById("email-cliente").value.trim(),
+            zona: Number(document.getElementById("zona-nueva").value),
+            latitud: Number(coordenadas.lat.toFixed(6)), longitud: Number(coordenadas.lng.toFixed(6)),
+          } });
+          punto = nuevo.id;
+        }
+        const pedido = await OR.api("pedidos/", { metodo: "POST", datos: {
+          punto_entrega: Number(punto), peso_kg: document.getElementById("peso").value, bultos: Number(document.getElementById("bultos").value),
+          prioridad: document.getElementById("prioridad-n").value, fecha_programada: document.getElementById("fecha-n").value,
+          ventana_inicio: ini || null, ventana_fin: fin || null, descripcion: document.getElementById("descripcion").value,
+        } });
+        OR.aviso(`Pedido ${pedido.codigo} registrado.`, "ok");
+      });
+      bootstrap.Modal.getInstance("#modal-pedido").hide();
+      fp.reset(); fp.classList.remove("was-validated");
+      document.getElementById("fecha-n").value = OR.hoyISO();
+      if (marcador) { marcador.remove(); marcador = null; }
+      coordenadas = null;
+      document.getElementById("coords").className = "small mt-1";
+      document.getElementById("coords").innerHTML = '<i class="bi bi-geo-alt me-1"></i>Sin ubicación marcada.';
+      document.getElementById("modo-existente").click();
+      cargarPuntos(); cargar();
+    } catch (err) { errorBox.textContent = err.message; errorBox.classList.remove("d-none"); }
+  });
+
+  async function cargarPuntos() {
+    const d = await OR.api("puntos-entrega/?page_size=200&ordering=cliente_nombre");
+    document.getElementById("punto").innerHTML = '<option value="">Elige un cliente…</option>' +
+      d.results.map((p) => `<option value="${p.id}">${OR.esc(p.cliente_nombre)} — ${OR.esc(p.direccion)} (${OR.esc(p.zona_nombre)})</option>`).join("");
+  }
+
+  OR.api("zonas/").then((z) => {
+    zonas = z;
+    const opts = z.map((x) => `<option value="${x.id}">${OR.esc(x.nombre)}</option>`).join("");
+    document.getElementById("zona").innerHTML += opts;
+    document.getElementById("zona-nueva").innerHTML = opts;
+  });
+  cargarPuntos();
+  cargar();
+})();
+</script>
+{% endblock %}

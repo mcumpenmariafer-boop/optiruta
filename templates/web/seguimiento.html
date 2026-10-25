@@ -1,0 +1,191 @@
+{% load static l10n %}<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Seguimiento de pedido · OptiRuta</title>
+  <link rel="icon" href="{% static 'img/logo.svg' %}">
+  <link href="{% static 'vendor/fonts/fuentes.css' %}" rel="stylesheet">
+  <link href="{% static 'vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
+  <link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet">
+  <link href="{% static 'vendor/leaflet/leaflet.css' %}" rel="stylesheet">
+  <link href="{% static 'css/app.css' %}" rel="stylesheet">
+  <style>
+    .hero { background: var(--asfalto); color: #fff; position: relative; }
+    .hero .contenedor { max-width: 980px; margin: 0 auto; padding: 22px 20px 56px; }
+    .hero .marca { display: inline-flex; align-items: center; gap: 10px; color: #fff; text-decoration: none; }
+    .hero .marca b { font-family: var(--fuente-c); font-size: 24px; }
+    .hero .marca small { color: #8FA6BC; font-size: 13px; margin-left: 6px; }
+    .hero h1 { color: #fff; font-size: clamp(34px, 6vw, 56px); line-height: 1; margin: 42px 0 10px; font-weight: 700; }
+    .hero p.sub { color: #B9CADA; font-size: 17px; margin: 0 0 26px; max-width: 520px; }
+    .buscador { display: flex; gap: 10px; max-width: 620px; }
+    .buscador .campo { flex: 1; position: relative; }
+    .buscador .campo i { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--tinta-suave); font-size: 20px; }
+    .buscador input { height: 58px; padding-left: 48px; font-family: var(--fuente-c); font-size: 22px; font-weight: 600;
+      letter-spacing: .06em; text-transform: uppercase; border: 0; border-radius: var(--radio); }
+    .buscador input::placeholder { color: #A8B3BD; letter-spacing: .06em; }
+    .buscador button { height: 58px; padding: 0 28px; font-size: 18px; font-family: var(--fuente-c); font-weight: 700; border-radius: var(--radio); }
+    .error-codigo { color: #FFB4B4; font-size: 14px; margin-top: 8px; min-height: 21px; }
+    /* Carretera al pie de la cabecera, con un camión que la recorre una vez */
+    .carretera { position: relative; height: 34px; background: var(--asfalto-3); overflow: hidden; }
+    .carretera::before { content: ""; position: absolute; left: 0; right: 0; top: 15px; height: 4px;
+      background: repeating-linear-gradient(90deg, var(--senal) 0 34px, transparent 34px 60px); }
+    .carretera .camion { position: absolute; top: 3px; left: -60px; font-size: 26px; color: var(--senal); line-height: 1;
+      animation: recorrido 7s cubic-bezier(.45,.05,.4,1) .4s 1 forwards; }
+    @keyframes recorrido { to { left: calc(100% + 60px); } }
+
+    main.contenido-seg { max-width: 980px; margin: 0 auto; padding: 32px 20px 60px; }
+    .ayuda { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+    .ayuda div { display: flex; gap: 12px; align-items: flex-start; color: var(--tinta-suave); font-size: 14.5px; }
+    .ayuda i { font-size: 22px; color: var(--asfalto); background: var(--blanco); border: 1px solid var(--linea);
+      width: 44px; height: 44px; border-radius: 10px; display: grid; place-items: center; flex-shrink: 0; }
+    .ayuda b { color: var(--tinta); display: block; }
+
+    .resultado-cab { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 18px; }
+    .resultado-cab .codigo { font-family: var(--fuente-c); font-size: 34px; font-weight: 700; color: var(--asfalto); }
+    .mensaje-principal { font-family: var(--fuente-c); font-size: 26px; font-weight: 600; color: var(--asfalto); line-height: 1.15; margin-bottom: 6px; }
+    .pasos-v { list-style: none; margin: 18px 0 0; padding: 0; }
+    .pasos-v li { position: relative; padding: 0 0 22px 46px; color: var(--tinta-suave); }
+    .pasos-v li::before { content: ""; position: absolute; left: 15px; top: 30px; bottom: 0; width: 3px; background: var(--linea); }
+    .pasos-v li:last-child::before { display: none; }
+    .pasos-v .icono { position: absolute; left: 0; top: 0; width: 33px; height: 33px; border-radius: 50%; display: grid; place-items: center;
+      background: var(--papel-2); color: var(--tinta-suave); font-size: 16px; }
+    .pasos-v li.hecho { color: var(--tinta); }
+    .pasos-v li.hecho .icono { background: var(--entrega); color: #fff; }
+    .pasos-v li.hecho::before { background: var(--entrega); }
+    .pasos-v li.actual { color: var(--asfalto); font-weight: 600; }
+    .pasos-v li.actual .icono { background: var(--senal); color: var(--asfalto-3); box-shadow: 0 0 0 5px var(--senal-suave); }
+    .pasos-v li.error .icono { background: var(--incidencia); color: #fff; }
+    .pasos-v small { display: block; font-weight: 400; color: var(--tinta-suave); }
+    @media (max-width: 575px) {
+      .buscador { flex-direction: column; }
+      .buscador button { width: 100%; }
+      .hero h1 { margin-top: 28px; }
+    }
+    @media (prefers-reduced-motion: reduce) { .carretera .camion { display: none; } }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="contenedor">
+      <a href="/login/" class="marca"><img src="{% static 'img/logo.svg' %}" width="38" alt=""><b>OptiRuta</b><small>Seguimiento de pedidos</small></a>
+      <h1>¿Dónde está<br>mi pedido?</h1>
+      <p class="sub">Escribe el código de tu pedido y te mostramos en qué etapa está y por dónde va el repartidor.</p>
+      <form class="buscador" id="form" novalidate>
+        <div class="campo">
+          <i class="bi bi-box-seam" aria-hidden="true"></i>
+          <label class="visually-hidden" for="codigo">Código del pedido</label>
+          <input class="form-control" id="codigo" placeholder="PD-000123" required maxlength="9" autocomplete="off" pattern="[Pp][Dd]-?[0-9]{6}">
+        </div>
+        <button class="btn btn-ruta" type="submit">Consultar</button>
+      </form>
+      <div class="error-codigo" id="formato" role="alert"></div>
+    </div>
+    <div class="carretera" aria-hidden="true"><i class="bi bi-truck camion"></i></div>
+  </header>
+
+  <main class="contenido-seg">
+    <div id="resultado">
+      <div class="ayuda">
+        <div><i class="bi bi-receipt"></i><span><b>¿Dónde está mi código?</b>En tu comprobante o en el mensaje de la empresa. Empieza con PD-.</span></div>
+        <div><i class="bi bi-geo-alt"></i><span><b>Ubicación en vivo</b>Cuando tu pedido está en camino ves al repartidor en el mapa.</span></div>
+        <div><i class="bi bi-shield-check"></i><span><b>Tus datos están protegidos</b>No mostramos tu nombre ni tu teléfono.</span></div>
+      </div>
+    </div>
+  </main>
+
+<script src="{% static 'vendor/leaflet/leaflet.js' %}"></script>
+<script>window.DEPOSITO = {lat: {{ deposito.lat|default:"-6.77881"|unlocalize }}, lng: {{ deposito.lng|default:"-79.868766"|unlocalize }}};</script>
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(() => {
+  const res = document.getElementById("resultado");
+  const errorBox = document.getElementById("formato");
+  let mapa = null, intervalo = null;
+  const PASOS = [
+    ["Pedido recibido", "receipt"], ["Asignado a una ruta", "signpost-split"], ["En camino", "truck"], ["Entregado", "house-check"],
+  ];
+  const nivel = { PENDIENTE: 0, REPROGRAMADO: 0, ASIGNADO: 1, EN_RUTA: 2, ENTREGADO: 3, FALLIDO: 2 };
+
+  function normalizar(valor) {
+    const limpio = valor.toUpperCase().replace(/\s/g, "");
+    const m = limpio.match(/^PD-?(\d{6})$/);
+    return m ? `PD-${m[1]}` : null;
+  }
+
+  async function consultar(codigo) {
+    try {
+      const r = await fetch(`/api/seguimiento/${encodeURIComponent(codigo)}/`);
+      if (r.status === 404) { res.innerHTML = `<div class="panel">${OR.vacio(`No encontramos el pedido ${codigo}. Revisa que el código esté bien escrito.`, "search")}</div>`; return; }
+      if (r.status === 429) { res.innerHTML = `<div class="panel">${OR.vacio("Hiciste muchas consultas seguidas. Espera un minuto e inténtalo de nuevo.", "hourglass")}</div>`; return; }
+      const d = await r.json();
+      const n = nivel[d.estado] ?? 0;
+      let mensaje = "", detalle = "";
+      if (d.estado === "ENTREGADO") { mensaje = "Tu pedido fue entregado"; detalle = d.ruta?.hora_entrega ? `Recibido a las ${OR.hora(d.ruta.hora_entrega)}.` : ""; }
+      else if (d.estado === "FALLIDO") { mensaje = "No pudimos entregar tu pedido"; detalle = "La empresa se comunicará contigo para coordinar una nueva entrega."; }
+      else if (d.estado === "REPROGRAMADO") { mensaje = "Tu entrega fue reprogramada"; detalle = `Nueva fecha: ${OR.fecha(d.fecha_programada)}.`; }
+      else if (d.ruta && d.ruta.estado === "EN_CURSO") {
+        mensaje = d.ruta.paradas_antes ? "El repartidor está en camino" : "¡Eres la siguiente entrega!";
+        detalle = d.ruta.paradas_antes ? `Hay ${d.ruta.paradas_antes} entrega(s) antes de la tuya. Hora estimada: ${String(d.ruta.hora_estimada).slice(0, 5)}.` : `Llegada estimada: ${String(d.ruta.hora_estimada).slice(0, 5)}.`;
+      }
+      else if (d.ruta) { mensaje = "Tu pedido ya tiene ruta asignada"; detalle = `Se entrega el ${OR.fecha(d.fecha_programada)}, llegada estimada ${String(d.ruta.hora_estimada).slice(0, 5)}.`; }
+      else { mensaje = "Recibimos tu pedido"; detalle = `Está programado para el ${OR.fecha(d.fecha_programada)}.`; }
+
+      const pasos = PASOS.map(([t, ic], i) => {
+        let clase = i < n || d.estado === "ENTREGADO" ? "hecho" : i === n ? "actual" : "";
+        if (d.estado === "FALLIDO" && i === 2) clase = "error";
+        const sub = i === 2 && d.ruta?.estado === "EN_CURSO" && d.estado !== "ENTREGADO" ? `<small>Ubicación del vehículo actualizada cada 20 s</small>` : "";
+        return `<li class="${clase}"><span class="icono"><i class="bi bi-${clase === "error" ? "x-lg" : ic}"></i></span>${t}${sub}</li>`;
+      }).join("");
+
+      res.innerHTML = `
+        <div class="resultado-cab"><span class="codigo">${OR.esc(d.codigo)}</span>${OR.estado(d.estado, d.estado_display)}</div>
+        <div class="row g-4">
+          <div class="col-lg-5">
+            <div class="panel panel-cuerpo h-100">
+              <div class="mensaje-principal">${OR.esc(mensaje)}</div>
+              <div class="text-suave">${OR.esc(detalle)}</div>
+              <ol class="pasos-v">${pasos}</ol>
+              <div class="d-flex flex-wrap gap-3 small text-suave border-top pt-3">
+                <span><i class="bi bi-pin-map me-1"></i>Zona ${OR.esc(d.zona)}</span>
+                <span><i class="bi bi-clock me-1"></i>Horario: ${OR.esc(d.ventana_horaria)}</span>
+              </div>
+            </div>
+          </div>
+          <div class="col-lg-7">
+            <div class="panel p-2 h-100"><div id="mapa" class="mapa" style="height:100%; min-height:360px"></div></div>
+          </div>
+        </div>`;
+      mapa?.remove();
+      mapa = OR.mapa("mapa", [d.destino.lat, d.destino.lng], 15);
+      L.marker([d.destino.lat, d.destino.lng]).addTo(mapa).bindTooltip("Tu dirección", { permanent: true, direction: "top", offset: [0, -32] });
+      if (d.ruta?.vehiculo) {
+        L.marker([d.ruta.vehiculo.lat, d.ruta.vehiculo.lng], { icon: OR.iconos.camion(true) }).addTo(mapa).bindTooltip("Repartidor");
+        mapa.fitBounds([[d.destino.lat, d.destino.lng], [d.ruta.vehiculo.lat, d.ruta.vehiculo.lng]], { padding: [60, 60] });
+      }
+      clearInterval(intervalo);
+      if (d.ruta && d.ruta.estado === "EN_CURSO" && d.estado !== "ENTREGADO") intervalo = setInterval(() => consultar(codigo), 20000);
+    } catch { res.innerHTML = `<div class="panel">${OR.vacio("No hay conexión. Inténtalo de nuevo.", "wifi-off")}</div>`; }
+  }
+
+  document.getElementById("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const c = document.getElementById("codigo");
+    const codigo = normalizar(c.value);
+    if (!codigo) {
+      errorBox.textContent = c.value.trim() ? "El código tiene la forma PD- seguida de 6 números, por ejemplo PD-000123." : "Escribe el código de tu pedido.";
+      c.focus();
+      return;
+    }
+    errorBox.textContent = "";
+    c.value = codigo;
+    history.replaceState(null, "", `?codigo=${codigo}`);
+    res.innerHTML = OR.cargando("Buscando tu pedido…");
+    consultar(codigo);
+  });
+  document.getElementById("codigo").addEventListener("input", () => { errorBox.textContent = ""; });
+  const inicial = new URLSearchParams(location.search).get("codigo");
+  if (inicial) { document.getElementById("codigo").value = inicial; document.getElementById("form").requestSubmit(); }
+})();
+</script>
+</body>
+</html>

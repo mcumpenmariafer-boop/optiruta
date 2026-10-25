@@ -1,0 +1,94 @@
+{% load static l10n %}<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}{{ titulo }}{% endblock %} · OptiRuta</title>
+  <link rel="icon" href="{% static 'img/logo.svg' %}">
+    <link href="{% static 'vendor/fonts/fuentes.css' %}" rel="stylesheet">
+  <link href="{% static 'vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
+  <link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet">
+  <link href="{% static 'vendor/leaflet/leaflet.css' %}" rel="stylesheet">
+  <link href="{% static 'css/app.css' %}" rel="stylesheet">
+  {% block cabecera %}{% endblock %}
+</head>
+<body data-roles="{{ roles_permitidos }}">
+{% block cuerpo %}
+<div class="app">
+  <aside class="menu" id="menu" aria-label="Menú principal">
+    <a class="menu-marca" href="/">
+      <img src="{% static 'img/logo.svg' %}" width="40" height="40" alt="">
+      <div><span>OptiRuta</span><small>Distribución inteligente</small></div>
+    </a>
+    <nav id="menu-nav">
+      <div data-rol="ADMIN,SUPERVISOR">
+        <div class="grupo">Operación del día</div>
+        <a href="/app/dashboard/" data-sec="dashboard"><i class="bi bi-map"></i>Mapa del día</a>
+        <a href="/app/pedidos/" data-sec="pedidos"><i class="bi bi-box-seam"></i>Pedidos sin asignar</a>
+        <a href="/app/planificar/" data-sec="planificar"><i class="bi bi-signpost-split"></i>Planificar rutas</a>
+        <div class="grupo">Análisis</div>
+        <a href="/app/reportes/" data-sec="reportes"><i class="bi bi-graph-up-arrow"></i>Reportes de eficiencia</a>
+        <a href="/app/historial/" data-sec="historial"><i class="bi bi-clock-history"></i>Historial de rutas</a>
+        <div class="grupo">Recursos</div>
+        <a href="/app/flota/" data-sec="flota"><i class="bi bi-truck"></i>Flota y conductores</a>
+      </div>
+      <div data-rol="ADMIN">
+        <a href="/admin/" target="_blank" rel="noopener"><i class="bi bi-shield-lock"></i>Administración</a>
+        <a href="/api/docs/" target="_blank" rel="noopener"><i class="bi bi-braces"></i>API (Swagger)</a>
+      </div>
+      <div data-rol="CONDUCTOR">
+        <div class="grupo">Mi jornada</div>
+        <a href="/app/conductor/" data-sec="conductor"><i class="bi bi-geo-alt"></i>Mi ruta</a>
+      </div>
+      <div class="grupo">Clientes</div>
+      <a href="/seguimiento/" target="_blank" rel="noopener"><i class="bi bi-search"></i>Seguimiento público</a>
+    </nav>
+    <div class="menu-pie">
+      <a href="#" id="btn-salir"><i class="bi bi-box-arrow-left me-1"></i>Cerrar sesión</a>
+    </div>
+  </aside>
+
+  <div class="contenido">
+    <header class="barra">
+      <button class="btn-menu" id="btn-menu" aria-label="Abrir menú"><i class="bi bi-list"></i></button>
+      <h1>{{ titulo }}</h1>
+      <span class="fecha" id="fecha-hoy"></span>
+      <div class="usuario-chip">
+        <div class="text-end d-none d-sm-block">
+          <div class="nombre" id="u-nombre"></div>
+          <div class="rol" id="u-rol"></div>
+        </div>
+        <div class="avatar" id="u-avatar" aria-hidden="true"></div>
+      </div>
+    </header>
+    <main class="pagina">
+      {% block contenido %}{% endblock %}
+    </main>
+  </div>
+</div>
+{% endblock %}
+
+<script src="{% static 'vendor/bootstrap/bootstrap.bundle.min.js' %}"></script>
+<script src="{% static 'vendor/leaflet/leaflet.js' %}"></script>
+<script>window.DEPOSITO = {lat: {{ deposito.lat|default:"-6.77881"|unlocalize }}, lng: {{ deposito.lng|default:"-79.868766"|unlocalize }}, nombre: "{{ deposito.nombre|default:'Centro de Distribución' }}"};</script>
+<script src="{% static 'js/api.js' %}"></script>
+<script>
+(() => {
+  const u = OR.sesion.usuario();
+  if (!u || !document.getElementById("menu")) return;
+  const nombres = { ADMIN: "Administrador", SUPERVISOR: "Supervisor de despacho", CONDUCTOR: "Conductor" };
+  document.getElementById("u-nombre").textContent = u.nombre_completo;
+  document.getElementById("u-rol").textContent = nombres[u.rol] || u.rol;
+  document.getElementById("u-avatar").textContent = (u.first_name?.[0] || u.username[0]).toUpperCase() + (u.last_name?.[0] || "").toUpperCase();
+  document.getElementById("fecha-hoy").textContent = new Date().toLocaleDateString("es-PE", { weekday: "long", day: "numeric", month: "long" });
+  document.querySelectorAll("#menu-nav [data-rol]").forEach((g) => { if (!g.dataset.rol.split(",").includes(u.rol)) g.remove(); });
+  document.querySelectorAll(`#menu-nav a[data-sec="{{ seccion }}"]`).forEach((a) => a.classList.add("activo"));
+  document.getElementById("btn-salir").onclick = (e) => { e.preventDefault(); OR.sesion.cerrar("salio"); };
+  const menu = document.getElementById("menu");
+  document.getElementById("btn-menu").onclick = (e) => { e.stopPropagation(); menu.classList.toggle("abierto"); };
+  document.addEventListener("click", (e) => { if (!menu.contains(e.target)) menu.classList.remove("abierto"); });
+})();
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

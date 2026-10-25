@@ -1,0 +1,30 @@
+# Publicación en Render (plan gratuito): https://render.com → New → Blueprint → elegir este repositorio.
+services:
+  - type: web
+    name: optiruta
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: ./build.sh
+    # Daphne atiende HTTP y WebSockets
+    startCommand: daphne -b 0.0.0.0 -p $PORT config.asgi:application
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: DEBUG
+        value: "False"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: optiruta-db
+          property: connectionString
+      # El plan gratuito no incluye workers: las tareas de Celery se ejecutan al instante
+      - key: CELERY_TASK_ALWAYS_EAGER
+        value: "True"
+
+databases:
+  - name: optiruta-db
+    plan: free
+    databaseName: optiruta
+    user: optiruta

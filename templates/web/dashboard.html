@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="franja-kpi mb-3" id="kpis">{{ "" }}</div>
+
+<div class="row g-3">
+  <div class="col-xl-8">
+    <div class="panel">
+      <div class="panel-cab">
+        <h2>Vehículos en ruta</h2>
+        <div class="ms-auto d-flex flex-wrap gap-3 small text-suave" aria-label="Leyenda de vehículos">
+          <span><i class="bi bi-truck me-1" style="color:#C98F00"></i>En camino</span>
+          <span><i class="bi bi-truck me-1" style="color:#D64545"></i>Con incidencia</span>
+          <span><i class="bi bi-truck me-1" style="color:#1E8E5A"></i>Completada</span>
+          <span><i class="bi bi-truck me-1" style="color:#7C8B98"></i>En almacén</span>
+        </div>
+      </div>
+      <div class="p-2"><div id="mapa" class="mapa mapa-alto"></div></div>
+    </div>
+  </div>
+  <div class="col-xl-4">
+    <div class="panel h-100 d-flex flex-column">
+      <div class="panel-cab">
+        <h2>Rutas de hoy</h2>
+        <span class="ms-auto small text-end lh-sm"><span id="en-vivo" class="fw-semibold text-suave">Conectando…</span><br><span class="text-suave" id="actualizado"></span></span>
+      </div>
+      <div id="lista-rutas" class="flex-grow-1 overflow-auto" style="max-height: calc(100vh - 260px)">{{ "" }}</div>
+      <div class="p-3 border-top">
+        <a href="/app/planificar/" class="btn btn-ruta w-100"><i class="bi bi-signpost-split me-2"></i>Planificar nuevas rutas</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const mapa = OR.mapa("mapa", [DEPOSITO.lat, DEPOSITO.lng], 13);
+  L.marker([DEPOSITO.lat, DEPOSITO.lng], { icon: OR.iconos.deposito(), zIndexOffset: 1000 })
+    .addTo(mapa).bindPopup(`<b>${OR.esc(DEPOSITO.nombre)}</b><br>Punto de partida de todas las rutas`);
+  const capaZonas = L.layerGroup().addTo(mapa);
+  const capaRutas = L.layerGroup().addTo(mapa);
+  const capaCamiones = L.layerGroup().addTo(mapa);
+  const coloresRuta = ["#2F80ED", "#9B51E0", "#E8833A", "#1E8E5A", "#D64545", "#0FA3B1"];
+  let primeraVez = true;
+  const camiones = new Map();   // vehiculo id -> marcador (para moverlo al instante)
+
+  OR.api("zonas/").then((zonas) => zonas.forEach((z) => {
+    L.circle([z.centro_lat, z.centro_lng], { radius: 900, color: z.color, weight: 1, fillOpacity: .06, dashArray: "4 6" })
+      .addTo(capaZonas).bindTooltip(z.nombre, { direction: "center", className: "small" });
+  }));
+
+  function kpis(r) {
+    document.getElementById("kpis").innerHTML = `
+      <div class="kpi"><div class="valor">${r.pedidos_hoy}</div><div class="etiqueta">Pedidos programados hoy</div></div>
+      <div class="kpi ${r.urgentes_sin_asignar ? "alerta" : ""}"><div class="valor">${r.pendientes_sin_asignar}</div><div class="etiqueta">Sin asignar · ${r.urgentes_sin_asignar} urgentes</div></div>
+      <div class="kpi"><div class="valor">${r.rutas_en_curso}<small>/ ${r.rutas_hoy}</small></div><div class="etiqueta">Rutas en curso</div></div>
+      <div class="kpi verde"><div class="valor">${r.entregas_hoy}</div><div class="etiqueta">Entregas realizadas (${OR.num(r.porcentaje_entrega_hoy)}%)</div></div>
+      <div class="kpi"><div class="valor">${r.vehiculos_disponibles}<small>/ ${r.vehiculos_total}</small></div><div class="etiqueta">Vehículos libres</div></div>
+      <div class="kpi verde"><div class="valor">${OR.num(r.km_ahorrados_hoy)}<small>km</small></div><div class="etiqueta">Ahorrados hoy por optimización</div></div>`;
+  }
+
+  function dibujarRutas(rutas) {
+    capaRutas.clearLayers();
+    capaCamiones.clearLayers();
+    camiones.clear();
+    const limites = [[DEPOSITO.lat, DEPOSITO.lng]];
+    const lista = document.getElementById("lista-rutas");
+    if (!rutas.length) {
+      lista.innerHTML = OR.vacio("No hay rutas hoy. Planifica las entregas del día.", "signpost");
+      return;
+    }
+    lista.innerHTML = rutas.map((r, i) => {
+      const color = coloresRuta[i % coloresRuta.length];
+      const linea = [[DEPOSITO.lat, DEPOSITO.lng], ...r.paradas.map((p) => [p.pedido.lat, p.pedido.lng]), [DEPOSITO.lat, DEPOSITO.lng]];
+      L.polyline(linea, { color, weight: 4, opacity: r.estado === "COMPLETADA" ? .3 : .75, dashArray: r.estado === "COMPLETADA" ? "6 8" : null }).addTo(capaRutas);
+      r.paradas.forEach((p) => {
+        limites.push([p.pedido.lat, p.pedido.lng]);
+        L.marker([p.pedido.lat, p.pedido.lng], { icon: OR.iconos.parada(p.orden, OR.COLOR_ESTADO[p.estado]) })
+          .addTo(capaRutas)
+          .bindPopup(`<b>${OR.esc(p.pedido.cliente)}</b><br>${OR.esc(p.pedido.direccion)}<br>${r.codigo} · parada ${p.orden}<br>${OR.estado(p.estado, p.estado_display)}`);
+      });
+      if (r.posicion_actual) {
+        const ev = OR.ESTADO_VEHICULO[OR.estadoVehiculo(r)];
+        const marcador = L.marker([r.posicion_actual.lat, r.posicion_actual.lng], { icon: OR.iconos.camion(r.estado === "EN_CURSO", r.vehiculo_tipo, ev.color), zIndexOffset: 900 });
+        camiones.set(r.vehiculo, marcador);
+        marcador.addTo(capaCamiones)
+          .bindPopup(`<b>${OR.esc(r.vehiculo_placa)}</b> · ${OR.esc(r.conductor || "")}<br><b style="color:${ev.color}">${ev.texto}</b> · avance ${r.avance_pct}%<br>Actualizado ${OR.hora(r.posicion_actual.actualizado)}`);
+      }
+      const incid = r.paradas.filter((p) => p.estado === "FALLIDO").length;
+      return `<a href="/app/rutas/${r.id}/" class="d-block px-3 py-3 border-bottom text-decoration-none text-reset">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="zona-punto" style="background:${color};width:14px;height:14px"></span>
+          <b class="cifra" style="font-size:18px">${OR.esc(r.vehiculo_placa)}</b>
+          <span class="text-suave small">${OR.esc(r.conductor || "")}</span>
+          <span class="ms-auto estado" style="background:${OR.ESTADO_VEHICULO[OR.estadoVehiculo(r)].color}1f;color:${OR.ESTADO_VEHICULO[OR.estadoVehiculo(r)].color}">${OR.ESTADO_VEHICULO[OR.estadoVehiculo(r)].texto}</span>
+        </div>
+        <div class="capacidad my-2"><div style="width:${r.avance_pct}%"></div></div>
+        <div class="d-flex justify-content-between small text-suave">
+          <span>${r.paradas_cerradas}/${r.total_paradas} paradas${incid ? ` · <span class="text-danger">${incid} incidencia(s)</span>` : ""}</span>
+          <span>${OR.num(r.km_estimados)} km · −${OR.num(r.ahorro_pct)}%</span>
+        </div></a>`;
+    }).join("");
+    if (primeraVez && limites.length > 1) { mapa.fitBounds(limites, { padding: [30, 30] }); primeraVez = false; }
+  }
+
+  async function actualizar() {
+    try {
+      const [resumen, rutas] = await Promise.all([OR.api("reportes/resumen/"), OR.api("rutas/en-curso/?incluir=completadas")]);
+      kpis(resumen);
+      dibujarRutas(rutas);
+      document.getElementById("actualizado").textContent = "Actualizado " + new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    } catch (e) { OR.aviso(e.message, "error"); }
+  }
+  // ---------- Tiempo real ----------
+  // Con WebSocket los camiones se mueven al instante. Si la conexión cae, se consulta cada 10 s.
+  function mover(marcador, destino) {
+    const inicio = marcador.getLatLng(), t0 = performance.now(), dur = 900;
+    const paso = (t) => {
+      const k = Math.min(1, (t - t0) / dur), e = k < .5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+      marcador.setLatLng([inicio.lat + (destino[0] - inicio.lat) * e, inicio.lng + (destino[1] - inicio.lng) * e]);
+      if (k < 1) requestAnimationFrame(paso);
+    };
+    requestAnimationFrame(paso);
+  }
+  let pendiente = null;
+  const actualizarPronto = () => { clearTimeout(pendiente); pendiente = setTimeout(actualizar, 400); };
+  const marcaHora = () => document.getElementById("actualizado").textContent =
+    "Último cambio " + new Date().toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+  let intervalo = null;
+  const programarConsulta = (ms) => { clearInterval(intervalo); intervalo = setInterval(actualizar, ms); };
+
+  OR.enVivo((tipo, d) => {
+    if (tipo === "posicion" && camiones.has(d.vehiculo)) {
+      mover(camiones.get(d.vehiculo), [d.lat, d.lng]);
+      marcaHora();
+    } else {
+      actualizarPronto();   // cambió una parada o una ruta: se redibuja todo
+    }
+  }, (conectado) => {
+    const badge = document.getElementById("en-vivo");
+    badge.innerHTML = conectado ? '<span style="color:var(--entrega)">● En vivo</span>' : '<span class="text-suave">○ Actualiza cada 10 s</span>';
+    programarConsulta(conectado ? 60000 : 10000);
+  });
+
+  document.getElementById("kpis").innerHTML = OR.cargando();
+  document.getElementById("lista-rutas").innerHTML = OR.cargando();
+  actualizar();
+  programarConsulta(10000);
+})();
+</script>
+{% endblock %}
